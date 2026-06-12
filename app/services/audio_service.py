@@ -73,7 +73,18 @@ class AudioService:
             )
             return
 
-        result = await asr_adapter.transcribe(chunks)
+        try:
+            result = await asr_adapter.transcribe(chunks)
+        except Exception as exc:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "asr_failed",
+                    "message": str(exc),
+                }
+            )
+            return
+
         turn_id = payload.get("turnId", str(uuid.uuid4()))
         include_vision = bool(payload.get("includeVision", False))
         vision_summary: str | None = None

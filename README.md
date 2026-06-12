@@ -65,8 +65,11 @@ cd frontend && npm run check
 - `VISION_PROVIDER=mock`：默认启用 mock 视觉摘要，方便在无真实视觉模型时跑通关键帧链路
 - `LLM_PROVIDER=mock`：默认启用 mock LLM，方便在无真实文本模型时跑通流式回复链路
 - `TTS_PROVIDER=mock`：默认启用 mock TTS；切换到 `volcengine` 后可通过后端接口调用火山语音合成
-- `VOLCENGINE_TTS_APP_ID / VOLCENGINE_TTS_ACCESS_TOKEN`：火山 TTS 鉴权配置
+- `VOLCENGINE_SPEECH_API_KEY`：豆包语音统一 API Key，优先用于火山 ASR / TTS 鉴权
+- `VOLCENGINE_TTS_APP_ID / VOLCENGINE_TTS_ACCESS_TOKEN`：火山 TTS 旧版鉴权配置，未设置统一 API Key 时可继续兼容
 - `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
+- `VOLCENGINE_ASR_APP_ID / VOLCENGINE_ASR_ACCESS_TOKEN`：火山 ASR 旧版鉴权配置，未设置统一 API Key 时可继续兼容
+- `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`：火山流式 ASR 资源与语言配置
 - `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
 
@@ -77,6 +80,8 @@ cd frontend && npm run check
 - 当 `TTS_PROVIDER=volcengine` 时，后端会调用火山引擎语音合成接口；未配置密钥时可先使用 mock 模式联调
 
 ## 火山模型接入
+- 当 `ASR_PROVIDER=volcengine` 时，前端会直接上报 `16k PCM` 音频分片，后端通过豆包流式语音识别接口完成转写
+- 当 `TTS_PROVIDER=volcengine` 时，后端会优先使用 `VOLCENGINE_SPEECH_API_KEY` 调用豆包语音合成；未设置时回退到旧版 AppId/AccessKey 鉴权
 - 当 `LLM_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟 OpenAI 兼容接口并调用 `ARK_LLM_MODEL`
 - 当 `VISION_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟多模态对话接口并调用 `ARK_VISION_MODEL`
 - 多轮上下文组装交由 `LangGraph` 处理，避免会话编排逻辑继续散落在服务层与适配层

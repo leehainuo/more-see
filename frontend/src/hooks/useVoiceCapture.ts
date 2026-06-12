@@ -19,15 +19,45 @@ type VoiceCaptureOptions = {
 
 const SILENCE_THRESHOLD = 0.02;
 const AUTO_COMMIT_MS = 1500;
+const TARGET_SAMPLE_RATE = 16000;
+const PROCESSOR_BUFFER_SIZE = 4096;
 
-async function blobToBase64(blob: Blob) {
-  const arrayBuffer = await blob.arrayBuffer();
+function arrayBufferToBase64(arrayBuffer: ArrayBufferLike) {
   const bytes = new Uint8Array(arrayBuffer);
   let binary = "";
   bytes.forEach((byte) => {
     binary += String.fromCharCode(byte);
   });
   return window.btoa(binary);
+}
+
+function downsampleToPcm16(input: Float32Array, sourceRate: number, targetRate: number): Int16Array {
+  if (sourceRate < targetRate) {
+    throw new Error(`无法将 ${sourceRate}Hz 上采样到 ${targetRate}Hz。`);
+  }
+
+  const ratio = sourceRate / targetRate;
+  const newLength = Math.max(1, Math.round(input.length / ratio));
+  const result = new Int16Array(newLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+
+  while (offsetResult < result.length) {
+    const nextOffsetBuffer = Math.min(input.length, Math.round((offsetResult + 1) * ratio));
+    let accum = 0;
+    let count = 0;
+    for (let index = offsetBuffer; index < nextOffsetBuffer; index += 1) {
+      accum += input[index];
+      count += 1;
+    }
+    const sample = count > 0 ? accum / count : 0;
+    const clamped = Math.max(-1, Math.min(1, sample));
+    result[offsetResult] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+    offsetResult += 1;
+    offsetBuffer = nextOffsetBuffer;
+  }
+
+  return result;
 }
 
 export function useVoiceCapture({
@@ -38,13 +68,16 @@ export function useVoiceCapture({
   commitTurn,
   captureFrameForTurn,
 }: VoiceCaptureOptions) {
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const muteGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const silenceTimerRef = useRef<number | null>(null);
-  const startedAtRef = useRef<number>(0);
   const chunkCountRef = useRef(0);
+  const recordedDurationMsRef = useRef(0);
+  const stoppingRef = useRef(false);
 
   const [isCapturing, setIsCapturing] = useState(false);
   const inputLevel = useSessionStore((state) => state.inputLevel);
@@ -60,29 +93,66 @@ export function useVoiceCapture({
     }
   }, []);
 
+  const finalizeTurn = useCallback(
+    async (activeSessionId: string) => {
+      const turnId = crypto.randomUUID();
+      const includeVision =
+        visionEnabled &&
+        (await captureFrameForTurn({
+          sessionId: activeSessionId,
+          inputSource,
+        }));
+
+      commitTurn({
+        sessionId: activeSessionId,
+        turnId,
+        silenceMs: AUTO_COMMIT_MS,
+        includeVision,
+      });
+    },
+    [captureFrameForTurn, commitTurn, inputSource, visionEnabled],
+  );
+
   const stopCapture = useCallback(() => {
+    if (stoppingRef.current) {
+      return;
+    }
+    stoppingRef.current = true;
     cleanupSilenceTimer();
     analyserRef.current = null;
+    processorRef.current?.disconnect();
+    processorRef.current = null;
+    sourceNodeRef.current?.disconnect();
+    sourceNodeRef.current = null;
+    muteGainRef.current?.disconnect();
+    muteGainRef.current = null;
     audioContextRef.current?.close();
     audioContextRef.current = null;
-    mediaRecorderRef.current?.stop();
-    mediaRecorderRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setIsCapturing(false);
     setRecordingState("transcribing", 0);
-  }, [cleanupSilenceTimer, setRecordingState]);
+
+    const activeSessionId = sessionId;
+    if (!activeSessionId || recordedDurationMsRef.current <= 0) {
+      stoppingRef.current = false;
+      return;
+    }
+
+    void finalizeTurn(activeSessionId).finally(() => {
+      stoppingRef.current = false;
+    });
+  }, [cleanupSilenceTimer, finalizeTurn, sessionId, setRecordingState]);
 
   const monitorVolume = useCallback(() => {
     const analyser = analyserRef.current;
-    if (!analyser || !mediaRecorderRef.current) {
+    if (!analyser) {
       return;
     }
 
     const dataArray = new Uint8Array(analyser.fftSize);
     const tick = () => {
-      const recorder = mediaRecorderRef.current;
-      if (!recorder || recorder.state !== "recording") {
+      if (!processorRef.current || !streamRef.current) {
         return;
       }
 
@@ -127,71 +197,61 @@ export function useVoiceCapture({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
+          channelCount: 1,
         },
         video: false,
       });
 
       streamRef.current = stream;
       chunkCountRef.current = 0;
+      recordedDurationMsRef.current = 0;
+      stoppingRef.current = false;
       setRecordedChunks(0);
       setIsCapturing(true);
-      startedAtRef.current = Date.now();
 
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
+      const processor = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1);
+      const muteGain = audioContext.createGain();
+      muteGain.gain.value = 0;
+
       analyser.fftSize = 1024;
       source.connect(analyser);
+      source.connect(processor);
+      processor.connect(muteGain);
+      muteGain.connect(audioContext.destination);
+
       audioContextRef.current = audioContext;
+      sourceNodeRef.current = source;
+      processorRef.current = processor;
+      muteGainRef.current = muteGain;
       analyserRef.current = analyser;
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
+      processor.onaudioprocess = (event) => {
+        if (!sessionId || stoppingRef.current) {
+          return;
+        }
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = async (event) => {
-        if (!sessionId || event.data.size === 0) {
+        const channelData = event.inputBuffer.getChannelData(0);
+        const pcm16 = downsampleToPcm16(channelData, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+        if (pcm16.byteLength === 0) {
           return;
         }
 
         chunkCountRef.current += 1;
+        recordedDurationMsRef.current += Math.round((pcm16.length / TARGET_SAMPLE_RATE) * 1000);
         setRecordedChunks(chunkCountRef.current);
 
-        const base64Audio = await blobToBase64(event.data);
         sendAudioChunk({
           sessionId,
           chunkId: crypto.randomUUID(),
-          mimeType,
-          base64Audio,
-          durationMs: Date.now() - startedAtRef.current,
+          mimeType: "audio/pcm;rate=16000",
+          base64Audio: arrayBufferToBase64(pcm16.buffer),
+          durationMs: recordedDurationMsRef.current,
         });
       };
 
-      mediaRecorder.onstop = () => {
-        if (!sessionId) {
-          return;
-        }
-        void (async () => {
-          const turnId = crypto.randomUUID();
-          const includeVision =
-            visionEnabled &&
-            (await captureFrameForTurn({
-              sessionId,
-              inputSource,
-            }));
-          commitTurn({
-            sessionId,
-            turnId,
-            silenceMs: AUTO_COMMIT_MS,
-            includeVision,
-          });
-        })();
-      };
-
-      mediaRecorder.start(900);
       setRecordingState("recording", 0.05);
       monitorVolume();
     } catch (error) {
@@ -218,6 +278,9 @@ export function useVoiceCapture({
   useEffect(() => {
     return () => {
       cleanupSilenceTimer();
+      processorRef.current?.disconnect();
+      sourceNodeRef.current?.disconnect();
+      muteGainRef.current?.disconnect();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       audioContextRef.current?.close();
     };

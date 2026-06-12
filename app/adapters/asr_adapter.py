@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.config import settings
 from app.state.session_store import AudioChunk
+from app.adapters.volcengine_asr import volcengine_asr_client
 
 
 class AsrAdapter:
@@ -16,6 +17,15 @@ class AsrAdapter:
             return {
                 "transcript": transcript,
                 "provider": "mock",
+                "durationMs": total_duration_ms,
+                "chunkCount": len(chunks),
+            }
+
+        if settings.asr_provider == "volcengine":
+            transcript = await volcengine_asr_client.transcribe_chunks(chunks)
+            return {
+                "transcript": transcript,
+                "provider": "volcengine",
                 "durationMs": total_duration_ms,
                 "chunkCount": len(chunks),
             }

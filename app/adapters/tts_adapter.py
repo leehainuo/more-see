@@ -28,20 +28,27 @@ class TtsAdapter:
             }
 
         if settings.tts_provider == "volcengine":
-            if not settings.volcengine_tts_app_id or not settings.volcengine_tts_access_token:
-                raise ValueError("火山 TTS 缺少 `VOLCENGINE_TTS_APP_ID` 或 `VOLCENGINE_TTS_ACCESS_TOKEN` 配置。")
+            headers = {
+                "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
+                "X-Control-Require-Usage-Tokens-Return": "text_words",
+            }
+            if settings.volcengine_speech_api_key:
+                headers["X-Api-Key"] = settings.volcengine_speech_api_key
+            elif settings.volcengine_tts_app_id and settings.volcengine_tts_access_token:
+                headers["X-Api-App-Id"] = settings.volcengine_tts_app_id
+                headers["X-Api-Access-Key"] = settings.volcengine_tts_access_token
+            else:
+                raise ValueError(
+                    "火山 TTS 缺少鉴权配置，请设置 `VOLCENGINE_SPEECH_API_KEY` 或"
+                    " `VOLCENGINE_TTS_APP_ID` + `VOLCENGINE_TTS_ACCESS_TOKEN`。"
+                )
 
             audio_chunks: list[bytes] = []
             async with httpx.AsyncClient(timeout=45.0) as client:
                 async with client.stream(
                     "POST",
                     "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
-                    headers={
-                        "X-Api-App-Id": settings.volcengine_tts_app_id,
-                        "X-Api-Access-Key": settings.volcengine_tts_access_token,
-                        "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
-                        "X-Control-Require-Usage-Tokens-Return": "text_words",
-                    },
+                    headers=headers,
                     json={
                         "user": {
                             "uid": "more-see-demo",
