@@ -241,8 +241,9 @@ export function useVoiceCapture({
           return;
         }
 
+        const chunkDurationMs = Math.round((pcm16.length / TARGET_SAMPLE_RATE) * 1000);
         chunkCountRef.current += 1;
-        recordedDurationMsRef.current += Math.round((pcm16.length / TARGET_SAMPLE_RATE) * 1000);
+        recordedDurationMsRef.current += chunkDurationMs;
         setRecordedChunks(chunkCountRef.current);
 
         sendAudioChunk({
@@ -250,7 +251,7 @@ export function useVoiceCapture({
           chunkId: crypto.randomUUID(),
           mimeType: "audio/pcm;rate=16000",
           base64Audio: arrayBufferToBase64(pcm16.buffer),
-          durationMs: recordedDurationMsRef.current,
+          durationMs: chunkDurationMs,
         });
       };
 

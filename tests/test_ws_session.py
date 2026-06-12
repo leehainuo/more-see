@@ -68,23 +68,16 @@ def test_session_start_audio_commit_returns_asr_result() -> None:
             }
         )
         asr_event = websocket.receive_json()
-        generating_event = websocket.receive_json()
-        delta_events, done_event = receive_llm_stream_events(websocket)
-        committed_event = websocket.receive_json()
+        warning_event = websocket.receive_json()
 
         assert asr_event["type"] == "asr.result"
         assert asr_event["turnId"] == "turn-1"
         assert asr_event["provider"] == "fallback"
         assert "火山语音识别暂不可用" in asr_event["transcript"]
-        assert generating_event["type"] == "session.status"
-        assert generating_event["message"] == "正在结合语音、视觉和会话上下文生成回复。"
-        assert delta_events
-        assert all(event["type"] == "llm.delta" for event in delta_events)
-        assert done_event["type"] == "llm.done"
-        assert done_event["turnId"] == "turn-1"
-        assert "火山文本模型暂不可用" in done_event["fullText"]
-        assert committed_event["type"] == "session.status"
-        assert committed_event["message"] == "多模态回复已完成，可以继续下一轮提问。"
+        assert warning_event["type"] == "session.status"
+        assert warning_event["level"] == "warning"
+        assert "已跳过 AI 回复与语音播报" in warning_event["message"]
+        assert "语音片段偏短" in warning_event["message"]
 
 
 def test_session_frame_capture_and_commit_returns_vision_result() -> None:
@@ -138,22 +131,13 @@ def test_session_frame_capture_and_commit_returns_vision_result() -> None:
             }
         )
         asr_event = websocket.receive_json()
-        vision_event = websocket.receive_json()
-        generating_event = websocket.receive_json()
-        delta_events, done_event = receive_llm_stream_events(websocket)
-        committed_event = websocket.receive_json()
+        warning_event = websocket.receive_json()
 
         assert asr_event["type"] == "asr.result"
-        assert vision_event["type"] == "vision.result"
-        assert vision_event["frameId"] == "frame-1"
-        assert vision_event["provider"] == "fallback"
-        assert "火山视觉模型暂不可用" in vision_event["summary"]
-        assert generating_event["type"] == "session.status"
-        assert delta_events
-        assert done_event["type"] == "llm.done"
-        assert done_event["turnId"] == "turn-vision-1"
-        assert "画面补充信息为" in done_event["fullText"]
-        assert committed_event["type"] == "session.status"
+        assert warning_event["type"] == "session.status"
+        assert warning_event["level"] == "warning"
+        assert "已跳过 AI 回复与语音播报" in warning_event["message"]
+        assert "本轮语音识别未成功" in warning_event["message"]
 
 
 def test_session_ping_and_end() -> None:

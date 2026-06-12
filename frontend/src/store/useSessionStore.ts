@@ -170,6 +170,14 @@ export const useSessionStore = create<SessionState>((set) => ({
           };
 
         case "asr.result":
+          if (event.provider !== "volcengine") {
+            return {
+              sessionStatus: "ready",
+              recordedChunks: 0,
+              inputLevel: 0,
+              systemMessage: "本轮语音识别未成功，已跳过 AI 回复。请重试录音，或直接输入文字。",
+            };
+          }
           return {
             sessionStatus: "transcribing",
             recordedChunks: 0,

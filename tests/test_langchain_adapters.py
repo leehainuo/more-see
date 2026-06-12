@@ -57,6 +57,27 @@ async def test_build_conversation_messages_uses_history_and_vision_summary() -> 
 
 
 @pytest.mark.asyncio
+async def test_build_conversation_messages_skips_fallback_asr_history() -> None:
+    messages = await build_conversation_messages(
+        user_text="继续分析",
+        vision_summary=None,
+        history_turns=[
+            TurnRecord(
+                turn_id="turn-fallback",
+                user_text="已收到约 1.2 秒语音，但当前火山语音识别暂不可用。我先保留本轮提问，你可以检查语音配置后重试，或直接继续输入文字问题。",
+                assistant_text="看来语音识别暂时遇到了点小状况呢。",
+            ),
+            TurnRecord(turn_id="turn-ok", user_text="上一轮正常问题", assistant_text="上一轮正常回复"),
+        ],
+    )
+
+    rendered = [str(message.content) for message in messages]
+
+    assert all("火山语音识别暂不可用" not in content for content in rendered)
+    assert any("上一轮正常问题" in content for content in rendered)
+
+
+@pytest.mark.asyncio
 async def test_llm_adapter_volcengine_stream(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_provider", "volcengine")
     monkeypatch.setattr(llm_module, "build_chat_model", lambda **_kwargs: _FakeStreamingModel())

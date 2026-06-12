@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, START, StateGraph
 
 from app.state.session_store import TurnRecord
+from app.adapters.asr_adapter import is_fallback_transcript
 
 
 class ConversationGraphState(TypedDict):
@@ -27,6 +28,8 @@ def _build_messages(state: ConversationGraphState) -> dict[str, list[BaseMessage
     ]
 
     for turn in state["history_turns"][-3:]:
+        if is_fallback_transcript(turn.user_text):
+            continue
         prior_user_text = turn.user_text
         if turn.vision_summary:
             prior_user_text = f"{prior_user_text}\n本轮视觉摘要：{turn.vision_summary}"
