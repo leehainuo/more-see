@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useVisualCapture } from "@/hooks/useVisualCapture";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
+import { synthesizeTts } from "@/lib/api";
 import { SessionWebSocketClient } from "@/lib/ws-client";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -13,7 +14,43 @@ export function useSessionLifecycle() {
   const appendUserMessage = useSessionStore((state) => state.appendUserMessage);
 
   const client = useMemo(() => new SessionWebSocketClient(), []);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
   const inputSource = "camera" as const;
+
+  const revokeCurrentAudioUrl = useCallback(() => {
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
+
+  const playAssistantSpeech = useCallback(async (text: string) => {
+    const cleanedText = text.trim();
+    if (!cleanedText) {
+      return;
+    }
+
+    const result = await synthesizeTts(cleanedText);
+    const binary = window.atob(result.audioBase64);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const blob = new Blob([bytes], { type: result.mimeType });
+    const url = URL.createObjectURL(blob);
+
+    audioRef.current?.pause();
+    revokeCurrentAudioUrl();
+
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audioUrlRef.current = url;
+    audio.onended = () => {
+      revokeCurrentAudioUrl();
+      if (audioRef.current === audio) {
+        audioRef.current = null;
+      }
+    };
+    await audio.play();
+  }, [revokeCurrentAudioUrl]);
 
   useEffect(() => {
     client.onStatusChange((status) => {
@@ -21,13 +58,24 @@ export function useSessionLifecycle() {
     });
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
+      if (event.type === "llm.done") {
+        void playAssistantSpeech(event.fullText).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "未知错误";
+          useSessionStore.setState({
+            systemMessage: `AI 文本已返回，但语音播报失败：${message}`,
+          });
+        });
+      }
     });
     client.connect();
 
     return () => {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      revokeCurrentAudioUrl();
       client.disconnect();
     };
-  }, [client]);
+  }, [client, playAssistantSpeech, revokeCurrentAudioUrl]);
 
   useEffect(() => {
     if (connectionStatus !== "connected" || !sessionId) {
