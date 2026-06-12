@@ -5,9 +5,9 @@
 ## 当前阶段
 - 已完成 `uv + FastAPI + React + shadcn/ui` 工程初始化
 - 已完成 WebSocket 会话生命周期
-- 已接入麦克风采集、音频分段上报与 mock ASR 识别回传
-- 已接入摄像头预览、关键帧抓取与 mock 视觉摘要回传
-- 已接入多模态会话编排与 mock LLM 流式回复
+- 已接入麦克风采集、音频分段上报与火山 ASR 识别回传
+- 已接入摄像头预览、关键帧抓取与火山视觉摘要回传
+- 已接入多模态会话编排与火山 LLM 流式回复
 - 已提供黑白极简风格的 React 工作台、会话记录页和设置页骨架
 
 ## 技术栈
@@ -72,13 +72,13 @@ cd frontend && npm run check
 - `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`：火山流式 ASR 资源与语言配置
 - `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
-- 若本地暂时没有火山密钥，可手动把对应 provider 切回 `mock` 保留页面联调能力
+- 若本地暂时没有火山密钥，后端会自动进入降级处理并返回保守回复或兜底音频
 
 ## TTS 接口
 - `POST /api/tts/synthesize`
 - 请求体：`{"text":"你好，欢迎使用 More See"}`
 - 返回：`audioBase64`、`mimeType`、`provider`、`textLength`
-- 当 `TTS_PROVIDER=volcengine` 时，后端会调用火山引擎语音合成接口；未配置密钥时可先使用 mock 模式联调
+- 当 `TTS_PROVIDER=volcengine` 时，后端会调用火山引擎语音合成接口；未配置密钥或请求失败时会自动回退到本地兜底音频
 
 ## 火山模型接入
 - 当 `ASR_PROVIDER=volcengine` 时，前端会直接上报 `16k PCM` 音频分片，后端通过豆包流式语音识别接口完成转写
@@ -86,7 +86,7 @@ cd frontend && npm run check
 - 当 `LLM_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟 OpenAI 兼容接口并调用 `ARK_LLM_MODEL`
 - 当 `VISION_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟多模态对话接口并调用 `ARK_VISION_MODEL`
 - 多轮上下文组装交由 `LangGraph` 处理，避免会话编排逻辑继续散落在服务层与适配层
-- 当前仍保留 mock 提供商，便于在缺少火山密钥或模型开通权限时独立联调页面
+- 当火山模型暂不可用时，系统会自动降级为保守文本回复、基础画面说明、兜底 transcript 或本地提示音
 
 ## 下一步
 - 接入浏览器 TTS 与分句朗读

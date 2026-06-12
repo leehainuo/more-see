@@ -95,3 +95,47 @@ async def test_vision_adapter_volcengine_summary(monkeypatch) -> None:
 
     assert result["provider"] == "volcengine"
     assert result["summary"] == "这是一段火山视觉摘要"
+
+
+@pytest.mark.asyncio
+async def test_llm_adapter_fallback_reply(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_provider", "volcengine")
+
+    def _raise_error(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(llm_module, "build_chat_model", _raise_error)
+
+    chunks: list[str] = []
+    async for chunk in llm_module.llm_adapter.stream_reply(
+        user_text="帮我总结一下",
+        vision_summary="画面中有一台电脑",
+        history_turns=[],
+    ):
+        chunks.append(chunk)
+
+    assert "火山文本模型暂不可用" in "".join(chunks)
+
+
+@pytest.mark.asyncio
+async def test_vision_adapter_fallback_summary(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "vision_provider", "volcengine")
+
+    def _raise_error(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(vision_module, "build_chat_model", _raise_error)
+
+    result = await vision_module.vision_adapter.summarize(
+        FrameSnapshot(
+            frame_id="frame-2",
+            input_source="camera",
+            image_base64="ZmFrZQ==",
+            width=720,
+            height=1280,
+            captured_at="2026-06-12T12:00:00Z",
+        )
+    )
+
+    assert result["provider"] == "fallback"
+    assert "火山视觉模型暂不可用" in str(result["summary"])

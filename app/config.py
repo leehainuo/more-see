@@ -7,10 +7,10 @@ class Settings(BaseSettings):
     app_debug: bool = True
     app_host: str = "127.0.0.1"
     app_port: int = 8000
-    asr_provider: str = "mock"
-    vision_provider: str = "mock"
-    llm_provider: str = "mock"
-    tts_provider: str = "mock"
+    asr_provider: str = "volcengine"
+    vision_provider: str = "volcengine"
+    llm_provider: str = "volcengine"
+    tts_provider: str = "volcengine"
     volcengine_speech_api_key: str = ""
     volcengine_tts_app_id: str = ""
     volcengine_tts_access_token: str = ""

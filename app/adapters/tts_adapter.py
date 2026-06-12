@@ -18,79 +18,72 @@ class TtsAdapter:
         if not cleaned_text:
             raise ValueError("合成文本不能为空。")
 
-        if settings.tts_provider == "mock":
-            audio_bytes = self._build_mock_wav(cleaned_text)
-            return {
-                "audioBase64": base64.b64encode(audio_bytes).decode("utf-8"),
-                "mimeType": "audio/wav",
-                "provider": "mock",
-                "textLength": len(cleaned_text),
-            }
-
         if settings.tts_provider == "volcengine":
-            headers = {
-                "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
-                "X-Control-Require-Usage-Tokens-Return": "text_words",
-            }
-            if settings.volcengine_speech_api_key:
-                headers["X-Api-Key"] = settings.volcengine_speech_api_key
-            elif settings.volcengine_tts_app_id and settings.volcengine_tts_access_token:
-                headers["X-Api-App-Id"] = settings.volcengine_tts_app_id
-                headers["X-Api-Access-Key"] = settings.volcengine_tts_access_token
-            else:
-                raise ValueError(
-                    "火山 TTS 缺少鉴权配置，请设置 `VOLCENGINE_SPEECH_API_KEY` 或"
-                    " `VOLCENGINE_TTS_APP_ID` + `VOLCENGINE_TTS_ACCESS_TOKEN`。"
-                )
+            try:
+                headers = {
+                    "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
+                    "X-Control-Require-Usage-Tokens-Return": "text_words",
+                }
+                if settings.volcengine_speech_api_key:
+                    headers["X-Api-Key"] = settings.volcengine_speech_api_key
+                elif settings.volcengine_tts_app_id and settings.volcengine_tts_access_token:
+                    headers["X-Api-App-Id"] = settings.volcengine_tts_app_id
+                    headers["X-Api-Access-Key"] = settings.volcengine_tts_access_token
+                else:
+                    raise ValueError("missing_volcengine_tts_credentials")
 
-            audio_chunks: list[bytes] = []
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                async with client.stream(
-                    "POST",
-                    "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
-                    headers=headers,
-                    json={
-                        "user": {
-                            "uid": "more-see-demo",
-                        },
-                        "req_params": {
-                            "text": cleaned_text,
-                            "speaker": settings.volcengine_tts_speaker,
-                            "audio_params": {
-                                "format": settings.volcengine_tts_format,
-                                "sample_rate": settings.volcengine_tts_sample_rate,
+                audio_chunks: list[bytes] = []
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    async with client.stream(
+                        "POST",
+                        "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+                        headers=headers,
+                        json={
+                            "user": {
+                                "uid": "more-see-demo",
                             },
-                            "additions": {
-                                "reqid": str(uuid4()),
+                            "req_params": {
+                                "text": cleaned_text,
+                                "speaker": settings.volcengine_tts_speaker,
+                                "audio_params": {
+                                    "format": settings.volcengine_tts_format,
+                                    "sample_rate": settings.volcengine_tts_sample_rate,
+                                },
+                                "additions": {
+                                    "reqid": str(uuid4()),
+                                },
                             },
                         },
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        payload = line.strip()
-                        if not payload:
-                            continue
-                        event = json.loads(payload)
-                        if event.get("data"):
-                            audio_chunks.append(base64.b64decode(event["data"]))
-                        if event.get("code") == 20000000:
-                            break
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            payload = line.strip()
+                            if not payload:
+                                continue
+                            event = json.loads(payload)
+                            if event.get("data"):
+                                audio_chunks.append(base64.b64decode(event["data"]))
+                            if event.get("code") == 20000000:
+                                break
 
-            audio_bytes = b"".join(audio_chunks)
-            if not audio_bytes:
-                raise RuntimeError("火山 TTS 未返回可播放音频数据。")
+                audio_bytes = b"".join(audio_chunks)
+                if audio_bytes:
+                    return {
+                        "audioBase64": base64.b64encode(audio_bytes).decode("utf-8"),
+                        "mimeType": self._resolve_mime_type(settings.volcengine_tts_format),
+                        "provider": "volcengine",
+                        "textLength": len(cleaned_text),
+                    }
+            except Exception:
+                pass
 
-            return {
-                "audioBase64": base64.b64encode(audio_bytes).decode("utf-8"),
-                "mimeType": self._resolve_mime_type(settings.volcengine_tts_format),
-                "provider": "volcengine",
-                "textLength": len(cleaned_text),
-            }
-
-        raise NotImplementedError(
-            f"暂未实现 TTS 提供商 {settings.tts_provider}，请先使用 mock 或 volcengine。"
-        )
+        audio_bytes = self._build_fallback_wav(cleaned_text)
+        return {
+            "audioBase64": base64.b64encode(audio_bytes).decode("utf-8"),
+            "mimeType": "audio/wav",
+            "provider": "fallback",
+            "textLength": len(cleaned_text),
+        }
 
     def _resolve_mime_type(self, audio_format: str) -> str:
         return {
@@ -99,7 +92,7 @@ class TtsAdapter:
             "pcm": "audio/pcm",
         }.get(audio_format, "application/octet-stream")
 
-    def _build_mock_wav(self, text: str) -> bytes:
+    def _build_fallback_wav(self, text: str) -> bytes:
         duration_seconds = min(max(len(text) * 0.04, 0.6), 3.0)
         sample_rate = 16_000
         amplitude = 12_000

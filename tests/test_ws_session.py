@@ -1,8 +1,20 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def force_fallback_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "volcengine_speech_api_key", "")
+    monkeypatch.setattr(settings, "volcengine_asr_app_id", "")
+    monkeypatch.setattr(settings, "volcengine_asr_access_token", "")
+    monkeypatch.setattr(settings, "volcengine_tts_app_id", "")
+    monkeypatch.setattr(settings, "volcengine_tts_access_token", "")
+    monkeypatch.setattr(settings, "ark_api_key", "")
 
 
 def receive_llm_stream_events(websocket) -> tuple[list[dict], dict]:
@@ -42,7 +54,7 @@ def test_session_start_audio_commit_returns_asr_result() -> None:
                 "type": "audio.chunk",
                 "sessionId": ready_event["sessionId"],
                 "chunkId": "chunk-1",
-                "mimeType": "audio/webm",
+                "mimeType": "audio/pcm;rate=16000",
                 "base64Audio": "dGVzdA==",
                 "durationMs": 920,
             }
@@ -66,15 +78,15 @@ def test_session_start_audio_commit_returns_asr_result() -> None:
 
         assert asr_event["type"] == "asr.result"
         assert asr_event["turnId"] == "turn-1"
-        assert asr_event["provider"] == "mock"
-        assert "模拟识别结果" in asr_event["transcript"]
+        assert asr_event["provider"] == "fallback"
+        assert "火山语音识别暂不可用" in asr_event["transcript"]
         assert generating_event["type"] == "session.status"
         assert generating_event["message"] == "正在结合语音、视觉和会话上下文生成回复。"
         assert delta_events
         assert all(event["type"] == "llm.delta" for event in delta_events)
         assert done_event["type"] == "llm.done"
         assert done_event["turnId"] == "turn-1"
-        assert "mock LLM 流式回复" in done_event["fullText"]
+        assert "火山文本模型暂不可用" in done_event["fullText"]
         assert committed_event["type"] == "session.status"
         assert committed_event["message"] == "多模态回复已完成，可以继续下一轮提问。"
 
@@ -113,7 +125,7 @@ def test_session_frame_capture_and_commit_returns_vision_result() -> None:
                 "type": "audio.chunk",
                 "sessionId": ready_event["sessionId"],
                 "chunkId": "chunk-vision-1",
-                "mimeType": "audio/webm",
+                "mimeType": "audio/pcm;rate=16000",
                 "base64Audio": "dGVzdA==",
                 "durationMs": 1200,
             }
@@ -138,13 +150,13 @@ def test_session_frame_capture_and_commit_returns_vision_result() -> None:
         assert asr_event["type"] == "asr.result"
         assert vision_event["type"] == "vision.result"
         assert vision_event["frameId"] == "frame-1"
-        assert vision_event["provider"] == "mock"
-        assert "模拟视觉摘要" in vision_event["summary"]
+        assert vision_event["provider"] == "fallback"
+        assert "火山视觉模型暂不可用" in vision_event["summary"]
         assert generating_event["type"] == "session.status"
         assert delta_events
         assert done_event["type"] == "llm.done"
         assert done_event["turnId"] == "turn-vision-1"
-        assert "画面信息补充为" in done_event["fullText"]
+        assert "画面补充信息为" in done_event["fullText"]
         assert committed_event["type"] == "session.status"
 
 
