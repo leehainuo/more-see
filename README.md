@@ -64,9 +64,18 @@ cd frontend && npm run check
 - `ASR_PROVIDER=mock`：默认启用 mock ASR，方便在无云端密钥环境下联调
 - `VISION_PROVIDER=mock`：默认启用 mock 视觉摘要，方便在无真实视觉模型时跑通关键帧链路
 - `LLM_PROVIDER=mock`：默认启用 mock LLM，方便在无真实文本模型时跑通流式回复链路
+- `TTS_PROVIDER=mock`：默认启用 mock TTS；切换到 `volcengine` 后可通过后端接口调用火山语音合成
+- `VOLCENGINE_TTS_APP_ID / VOLCENGINE_TTS_ACCESS_TOKEN`：火山 TTS 鉴权配置
+- `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
 - 后续接入真实阿里云或百度 ASR 时，可继续扩展对应适配器
 - 后续接入真实视觉模型时，可继续扩展 `QWEN_VL_API_KEY` 等配置
 - 后续接入真实文本模型时，可继续扩展 `DEEPSEEK_API_KEY` 等配置
+
+## TTS 接口
+- `POST /api/tts/synthesize`
+- 请求体：`{"text":"你好，欢迎使用 More See"}`
+- 返回：`audioBase64`、`mimeType`、`provider`、`textLength`
+- 当 `TTS_PROVIDER=volcengine` 时，后端会调用火山引擎语音合成接口；未配置密钥时可先使用 mock 模式联调
 
 ## 下一步
 - 接入浏览器 TTS 与分句朗读

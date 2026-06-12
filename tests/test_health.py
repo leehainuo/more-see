@@ -17,3 +17,19 @@ def test_public_config() -> None:
 
     assert response.status_code == 200
     assert response.json()["frontendMode"] == "react-shadcn"
+
+
+def test_tts_synthesize_mock_endpoint() -> None:
+    response = client.post(
+        "/api/tts/synthesize",
+        json={
+            "text": "你好，欢迎使用 More See。",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "mock"
+    assert payload["mimeType"] == "audio/wav"
+    assert payload["audioBase64"]
+    assert payload["textLength"] > 0
