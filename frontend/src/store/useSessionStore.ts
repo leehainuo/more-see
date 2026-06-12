@@ -315,15 +315,22 @@ export const useSessionStore = create<SessionState>((set) => ({
 
         case "tts.start":
           return {
+            sessionStatus: state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
             assistantAudioStatus: "speaking",
-            systemMessage: "AI 正在播报语音，播报结束后会继续监听你的下一轮发言。",
+            systemMessage:
+              state.sessionStatus === "ready"
+                ? "AI 正在播报语音，播报结束后会继续监听你的下一轮发言。"
+                : state.systemMessage,
           };
 
         case "tts.done":
           return {
-            sessionStatus: "streaming",
+            sessionStatus: state.sessionStatus === "streaming" || state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
             assistantAudioStatus: "speaking",
-            systemMessage: "AI 语音数据已发送完成，正在播放剩余音频。",
+            systemMessage:
+              state.sessionStatus === "streaming" || state.sessionStatus === "ready"
+                ? "AI 语音数据已发送完成，正在播放剩余音频。"
+                : state.systemMessage,
           };
 
         case "assistant.interrupted":
