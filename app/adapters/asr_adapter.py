@@ -138,6 +138,34 @@ def _build_failure_diagnostic(chunks: list[AudioChunk], total_duration_ms: int, 
 
 
 class AsrAdapter:
+    async def transcribe_partial(self, chunks: list[AudioChunk]) -> dict[str, str | int]:
+        total_duration_ms = sum(chunk.duration_ms for chunk in chunks)
+        if not chunks or settings.asr_provider != "volcengine":
+            return {
+                "transcript": "",
+                "provider": "fallback",
+                "durationMs": total_duration_ms,
+                "chunkCount": len(chunks),
+            }
+
+        try:
+            transcript = await volcengine_asr_client.transcribe_chunks(chunks)
+        except Exception as exc:
+            logger.info(
+                "asr partial skipped: provider=volcengine chunk_count=%s duration_ms=%s error=%s",
+                len(chunks),
+                total_duration_ms,
+                exc,
+            )
+            transcript = ""
+
+        return {
+            "transcript": transcript,
+            "provider": "volcengine",
+            "durationMs": total_duration_ms,
+            "chunkCount": len(chunks),
+        }
+
     async def transcribe(self, chunks: list[AudioChunk]) -> dict[str, str | int | float]:
         total_duration_ms = sum(chunk.duration_ms for chunk in chunks)
         audio_level = _estimate_pcm_audio_level(chunks)

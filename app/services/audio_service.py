@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import WebSocket
@@ -11,6 +12,35 @@ from app.services.conversation_service import conversation_service
 from app.services.vision_service import vision_service
 
 logger = logging.getLogger(__name__)
+_PARTIAL_MIN_DURATION_MS = 300
+_PARTIAL_MIN_CHUNKS = 2
+_BARGE_IN_CONFIRM_HITS = 2
+_BARGE_IN_LONG_PARTIAL_LEN = 6
+_NORMALIZE_TEXT_RE = re.compile(r"""[\s，。！？；：、“”"'`~!@#$%^&*()_+\-=\[\]{};:\\|,.<>/?《》【】（）]""")
+
+
+def _normalize_speech_text(text: str) -> str:
+    return _NORMALIZE_TEXT_RE.sub("", text.lower())
+
+
+def _is_likely_echo_transcript(partial_transcript: str, assistant_transcript: str) -> bool:
+    normalized_partial = _normalize_speech_text(partial_transcript)
+    if len(normalized_partial) < 2:
+        return False
+
+    assistant_tail = _normalize_speech_text(assistant_transcript)[-48:]
+    if not assistant_tail:
+        return False
+
+    return normalized_partial in assistant_tail
+
+
+def _is_stable_partial_transcript(current_transcript: str, previous_transcript: str) -> bool:
+    current = _normalize_speech_text(current_transcript)
+    previous = _normalize_speech_text(previous_transcript)
+    if len(current) < 2 or len(previous) < 2:
+        return False
+    return current in previous or previous in current
 
 
 class AudioService:
@@ -43,15 +73,72 @@ class AudioService:
             )
             return
 
-        session = session_store.get_session(session_id)
-        await websocket.send_json(
-            {
-                "type": "session.status",
-                "sessionId": session_id,
-                "level": "info",
-                "message": f"已缓存 {len(session.audio_chunks)} 段音频，等待静音自动提交。",
-            }
+    def should_probe_barge_in(self, session_id: str) -> bool:
+        session = session_store.get_assistant_state(session_id)
+        if session is None or not session.assistant_speaking:
+            return False
+
+        chunk_count = len(session.audio_chunks)
+        if chunk_count < _PARTIAL_MIN_CHUNKS or chunk_count <= session.last_partial_chunk_count:
+            return False
+
+        total_duration_ms = sum(chunk.duration_ms for chunk in session.audio_chunks)
+        return total_duration_ms >= _PARTIAL_MIN_DURATION_MS
+
+    async def probe_barge_in(self, session_id: str) -> dict[str, str | int] | None:
+        session = session_store.get_assistant_state(session_id)
+        if session is None or not session.assistant_speaking:
+            return None
+
+        chunks = list(session.audio_chunks)
+        if len(chunks) < _PARTIAL_MIN_CHUNKS:
+            return None
+
+        total_duration_ms = sum(chunk.duration_ms for chunk in chunks)
+        if total_duration_ms < _PARTIAL_MIN_DURATION_MS:
+            return None
+
+        if len(chunks) <= session.last_partial_chunk_count:
+            return None
+
+        result = await asr_adapter.transcribe_partial(chunks)
+        transcript = str(result.get("transcript", "")).strip()
+        if not transcript:
+            session_store.update_partial_probe_state(session_id, chunk_count=len(chunks))
+            return None
+
+        provider = str(result.get("provider", "volcengine"))
+        stable_hits = 1
+        verdict = "candidate"
+        normalized_partial = _normalize_speech_text(transcript)
+
+        if _is_likely_echo_transcript(transcript, session.assistant_transcript):
+            stable_hits = 0
+            verdict = "echo"
+        else:
+            if _is_stable_partial_transcript(transcript, session.last_partial_transcript):
+                stable_hits = session.partial_stable_hits + 1
+
+            if stable_hits >= _BARGE_IN_CONFIRM_HITS or len(normalized_partial) >= _BARGE_IN_LONG_PARTIAL_LEN:
+                verdict = "confirmed"
+
+        session_store.update_partial_probe_state(
+            session_id,
+            chunk_count=len(chunks),
+            transcript=transcript,
+            stable_hits=stable_hits,
         )
+        if verdict == "confirmed":
+            session_store.reset_partial_probe_state(session_id)
+
+        return {
+            "sessionId": session_id,
+            "transcript": transcript,
+            "provider": provider,
+            "durationMs": int(result.get("durationMs", total_duration_ms)),
+            "chunkCount": int(result.get("chunkCount", len(chunks))),
+            "verdict": verdict,
+        }
 
     async def handle_turn_commit(self, websocket: WebSocket, payload: dict) -> None:
         session_id = payload.get("sessionId")
@@ -173,6 +260,29 @@ class AudioService:
             turn_id=turn_id,
             transcript=str(result["transcript"]),
             vision_summary=vision_summary,
+        )
+
+    async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> None:
+        session_id = payload.get("sessionId")
+        request_id = str(payload.get("requestId", ""))
+        if not session_id or not request_id:
+            return
+
+        result = await self.probe_barge_in(session_id)
+        if result is None:
+            return
+
+        await websocket.send_json(
+            {
+                "type": "asr.partial",
+                "sessionId": session_id,
+                "requestId": request_id,
+                "transcript": result["transcript"],
+                "provider": result["provider"],
+                "durationMs": result["durationMs"],
+                "chunkCount": result["chunkCount"],
+                "verdict": result["verdict"],
+            }
         )
 
 
