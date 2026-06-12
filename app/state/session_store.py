@@ -46,6 +46,11 @@ class SessionState:
     audio_chunks: list[AudioChunk] = field(default_factory=list)
     frames: list[FrameSnapshot] = field(default_factory=list)
     turns: list[TurnRecord] = field(default_factory=list)
+    assistant_speaking: bool = False
+    assistant_transcript: str = ""
+    last_partial_chunk_count: int = 0
+    last_partial_transcript: str = ""
+    partial_stable_hits: int = 0
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -106,6 +111,66 @@ class SessionStore:
         chunks = list(session.audio_chunks)
         session.audio_chunks.clear()
         return chunks
+
+    def get_audio_chunks(self, session_id: str) -> list[AudioChunk]:
+        session = self.touch_session(session_id)
+        if session is None:
+            return []
+        return list(session.audio_chunks)
+
+    def set_assistant_speaking(self, session_id: str, speaking: bool) -> SessionState | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        session.assistant_speaking = speaking
+        if not speaking:
+            self.reset_partial_probe_state(session_id)
+        return session
+
+    def append_assistant_transcript(self, session_id: str, text: str) -> SessionState | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        session.assistant_transcript += text
+        return session
+
+    def set_assistant_transcript(self, session_id: str, text: str) -> SessionState | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        session.assistant_transcript = text
+        return session
+
+    def get_assistant_state(self, session_id: str) -> SessionState | None:
+        return self.touch_session(session_id)
+
+    def update_partial_probe_state(
+        self,
+        session_id: str,
+        *,
+        chunk_count: int | None = None,
+        transcript: str | None = None,
+        stable_hits: int | None = None,
+    ) -> SessionState | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        if chunk_count is not None:
+            session.last_partial_chunk_count = chunk_count
+        if transcript is not None:
+            session.last_partial_transcript = transcript
+        if stable_hits is not None:
+            session.partial_stable_hits = stable_hits
+        return session
+
+    def reset_partial_probe_state(self, session_id: str) -> SessionState | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        session.last_partial_chunk_count = 0
+        session.last_partial_transcript = ""
+        session.partial_stable_hits = 0
+        return session
 
     def add_frame(
         self,

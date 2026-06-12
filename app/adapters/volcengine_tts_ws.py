@@ -171,7 +171,7 @@ async def _wait_for_event(
         return message
 
 
-def _build_session_request() -> dict[str, object]:
+def _build_session_request(audio_format: str | None = None) -> dict[str, object]:
     return {
         "user": {
             "uid": "more-see-demo",
@@ -179,7 +179,7 @@ def _build_session_request() -> dict[str, object]:
         "req_params": {
             "speaker": settings.volcengine_tts_speaker,
             "audio_params": {
-                "format": settings.volcengine_tts_format,
+                "format": audio_format or settings.volcengine_tts_format,
                 "sample_rate": settings.volcengine_tts_sample_rate,
             },
             # Avoid sending nested objects directly here. The upstream V3 protocol
@@ -206,6 +206,13 @@ def _build_task_request(text: str) -> dict[str, object]:
 
 
 async def synthesize_via_websocket(text: str) -> bytes:
+    chunks = []
+    async for chunk in stream_synthesize_via_websocket(text):
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def stream_synthesize_via_websocket(text: str, *, audio_format: str | None = None):
     if not settings.volcengine_speech_api_key:
         raise ValueError("missing_volcengine_tts_credentials")
 
@@ -238,7 +245,7 @@ async def synthesize_via_websocket(text: str) -> bytes:
         await websocket.send(
             _encode_event_frame(
                 _EVENT_START_SESSION,
-                _encode_json_payload(_build_session_request()),
+                _encode_json_payload(_build_session_request(audio_format)),
                 session_id=session_id,
             )
         )
@@ -264,7 +271,6 @@ async def synthesize_via_websocket(text: str) -> bytes:
             )
         )
 
-        audio_chunks: list[bytes] = []
         while True:
             message = await _receive_message(websocket)
             if message.msg_type == _MSG_TYPE_ERROR:
@@ -277,7 +283,7 @@ async def synthesize_via_websocket(text: str) -> bytes:
                 message.msg_type == _MSG_TYPE_AUDIO_ONLY_SERVER
                 and message.event_type == _EVENT_TTS_RESPONSE
             ):
-                audio_chunks.append(message.payload)
+                yield message.payload
                 continue
             if (
                 message.msg_type == _MSG_TYPE_FULL_SERVER_RESPONSE
@@ -296,5 +302,3 @@ async def synthesize_via_websocket(text: str) -> bytes:
             msg_type=_MSG_TYPE_FULL_SERVER_RESPONSE,
             event_type=_EVENT_CONNECTION_FINISHED,
         )
-
-        return b"".join(audio_chunks)
