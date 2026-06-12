@@ -9,7 +9,9 @@ from app.adapters.llm_adapter import llm_adapter
 from app.state.session_store import session_store
 from app.services.tts_service import tts_service
 
-_SENTENCE_END_RE = re.compile(r"(?<=[。！？!?；;：:\n])")
+_SENTENCE_END_RE = re.compile(r"(?<=[，,。！？!?；;：:\n])")
+_TTS_SOFT_CHUNK_SIZE = 24
+_TTS_HARD_CHUNK_SIZE = 36
 
 
 class ConversationService:
@@ -116,6 +118,8 @@ class ConversationService:
 
         segments = _SENTENCE_END_RE.split(buffer)
         if len(segments) <= 1:
+            if len(buffer) >= _TTS_HARD_CHUNK_SIZE:
+                return [buffer[:_TTS_SOFT_CHUNK_SIZE].strip()], buffer[_TTS_SOFT_CHUNK_SIZE:]
             return [], buffer
 
         completed = [segment.strip() for segment in segments[:-1] if segment.strip()]
