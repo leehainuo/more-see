@@ -9,6 +9,7 @@ from fastapi import WebSocket
 
 from app.adapters.asr_adapter import asr_adapter, is_fallback_transcript
 from app.state.session_store import session_store
+from app.services.asr_stream_service import asr_stream_service
 from app.services.conversation_service import conversation_service
 from app.services.vision_service import vision_service
 
@@ -74,6 +75,13 @@ class AudioService:
                 }
             )
             return
+        asyncio.create_task(
+            asr_stream_service.push_audio_chunk(
+                session_id=session_id,
+                mime_type=chunk.mime_type,
+                base64_audio=chunk.base64_audio,
+            )
+        )
 
     def should_probe_barge_in(self, session_id: str) -> bool:
         session = session_store.get_assistant_state(session_id)
@@ -172,7 +180,16 @@ class AudioService:
             return
 
         try:
-            result = await asr_adapter.transcribe(chunks)
+            transcript = await asr_stream_service.finalize(session_id=session_id)
+            if transcript is None:
+                result = await asr_adapter.transcribe(chunks)
+            else:
+                result = {
+                    "transcript": transcript,
+                    "provider": "volcengine",
+                    "durationMs": sum(chunk.duration_ms for chunk in chunks),
+                    "chunkCount": len(chunks),
+                }
         except Exception as exc:
             await websocket.send_json(
                 {

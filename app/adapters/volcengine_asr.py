@@ -26,7 +26,6 @@ _NEG_SEQUENCE = 0b0010
 _JSON = 0b0001
 _GZIP = 0b0001
 _SUCCESS_CODE = 1000
-_WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
 _FINAL_RESULT_TIMEOUT_SECONDS = 1.0
 _FINAL_RESULT_MAX_FRAMES = 6
 _MIN_SEND_INTERVAL_MS = 100
@@ -252,7 +251,7 @@ class VolcengineAsrClient:
         }
 
         async with websockets.connect(
-            _WS_URL,
+            settings.volcengine_asr_ws_url,
             additional_headers=headers,
             max_size=10_000_000,
             ssl=build_volcengine_ssl_context(),
@@ -310,6 +309,126 @@ class VolcengineAsrClient:
         if not transcript:
             raise RuntimeError("火山 ASR 未返回可用 transcript。")
         return transcript
+
+
+class VolcengineAsrStreamSession:
+    def __init__(self, *, mime_type: str) -> None:
+        self._mime_type = mime_type
+        self._ws = None
+        self._send_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._latest_payload: dict[str, object] = {}
+        self._latest_transcript = ""
+        self._sent_last = False
+        self._final_event = asyncio.Event()
+        self._receiver_task: asyncio.Task[None] | None = None
+        self._sender_task: asyncio.Task[None] | None = None
+        self._headers = build_speech_ws_headers(
+            resource_id=settings.volcengine_asr_resource_id,
+            connect_id=str(uuid4()),
+        )
+        self._audio_config = resolve_audio_config(mime_type)
+        self._request_payload = {
+            "user": {
+                "uid": "more-see-demo",
+            },
+            "audio": {
+                "format": self._audio_config.format,
+                "codec": self._audio_config.codec,
+                "rate": self._audio_config.rate,
+                "bits": self._audio_config.bits,
+                "channel": self._audio_config.channel,
+                "language": settings.volcengine_asr_language,
+            },
+            "request": {
+                "model_name": "bigmodel",
+                "enable_itn": True,
+                "enable_punc": True,
+                "enable_ddc": False,
+            },
+        }
+
+    async def start(self) -> None:
+        if not settings.volcengine_speech_api_key:
+            raise ValueError("missing_volcengine_asr_credentials")
+        if self._ws is not None:
+            return
+        self._ws = await websockets.connect(
+            settings.volcengine_asr_ws_url,
+            additional_headers=self._headers,
+            max_size=10_000_000,
+            ssl=build_volcengine_ssl_context(),
+        )
+        await self._ws.send(_build_full_request(self._request_payload))
+        first_response = _parse_response(await self._ws.recv())
+        first_payload = first_response.get("payload")
+        if isinstance(first_payload, dict) and int(first_payload.get("code", _SUCCESS_CODE)) != _SUCCESS_CODE:
+            raise RuntimeError(str(first_payload.get("message", "火山 ASR 初始化失败。")))
+        self._receiver_task = asyncio.create_task(self._receiver_loop())
+        self._sender_task = asyncio.create_task(self._sender_loop())
+
+    async def push_audio(self, audio_bytes: bytes) -> None:
+        if self._ws is None:
+            await self.start()
+        if not audio_bytes:
+            return
+        await self._send_queue.put(_build_audio_request(audio_bytes, last=False))
+
+    async def finish(self) -> str:
+        if self._ws is None:
+            await self.start()
+        self._sent_last = True
+        await self._send_queue.put(_build_audio_request(b"", last=True))
+        try:
+            await asyncio.wait_for(self._final_event.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            pass
+        transcript = self._latest_transcript.strip()
+        if not transcript:
+            raise RuntimeError("火山 ASR 未返回可用 transcript。")
+        await self.close()
+        return transcript
+
+    async def close(self) -> None:
+        if self._ws is None:
+            return
+        ws = self._ws
+        self._ws = None
+        if self._sender_task is not None:
+            self._sender_task.cancel()
+        if self._receiver_task is not None:
+            self._receiver_task.cancel()
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    async def _sender_loop(self) -> None:
+        if self._ws is None:
+            return
+        ws = self._ws
+        while True:
+            frame = await self._send_queue.get()
+            await ws.send(frame)
+
+    async def _receiver_loop(self) -> None:
+        if self._ws is None:
+            return
+        ws = self._ws
+        while True:
+            frame = await ws.recv()
+            response = _parse_response(frame)
+            payload = _extract_payload_or_raise(response)
+            if payload is None:
+                continue
+            self._latest_payload = payload
+            transcript = extract_transcript(payload).strip()
+            if transcript:
+                self._latest_transcript = transcript
+                sequence = response.get("sequence")
+                if isinstance(sequence, int) and sequence < 0:
+                    self._final_event.set()
+                elif self._sent_last:
+                    self._final_event.set()
 
 
 volcengine_asr_client = VolcengineAsrClient()

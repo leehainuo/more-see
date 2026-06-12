@@ -4,6 +4,7 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.audio_service import audio_service
+from app.services.asr_stream_service import asr_stream_service
 from app.services.session_service import session_service
 from app.services.vision_service import vision_service
 
@@ -108,6 +109,8 @@ async def session_ws(websocket: WebSocket) -> None:
                 )
             elif event_type == "session.end":
                 await cancel_active_turn("session_end")
+                if data.get("sessionId"):
+                    await asr_stream_service.cancel(session_id=str(data.get("sessionId")))
                 await session_service.handle_session_end(websocket, data)
             else:
                 await websocket.send_json(
@@ -120,4 +123,6 @@ async def session_ws(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         if active_turn_task is not None and not active_turn_task.done():
             active_turn_task.cancel()
+        if active_turn_session_id:
+            await asr_stream_service.cancel(session_id=active_turn_session_id)
         return
