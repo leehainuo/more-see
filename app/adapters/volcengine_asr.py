@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 import json
+import logging
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -11,6 +13,7 @@ import websockets
 from app.config import settings
 from app.state.session_store import AudioChunk
 from app.utils.ssl_context import build_volcengine_ssl_context
+from app.utils.volcengine_speech import build_speech_ws_headers
 
 _PROTOCOL_VERSION = 0b0001
 _CLIENT_FULL_REQUEST = 0b0001
@@ -24,6 +27,12 @@ _JSON = 0b0001
 _GZIP = 0b0001
 _SUCCESS_CODE = 1000
 _WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
+_FINAL_RESULT_TIMEOUT_SECONDS = 1.0
+_FINAL_RESULT_MAX_FRAMES = 6
+_MIN_SEND_INTERVAL_MS = 100
+_MAX_SEND_INTERVAL_MS = 200
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,11 @@ def _build_full_request(payload: dict[str, object]) -> bytes:
     return bytes(frame)
 
 
+def _resolve_send_interval_seconds(duration_ms: int) -> float:
+    clamped_ms = min(max(duration_ms, _MIN_SEND_INTERVAL_MS), _MAX_SEND_INTERVAL_MS)
+    return clamped_ms / 1000
+
+
 def _build_audio_request(audio_bytes: bytes, *, last: bool) -> bytes:
     payload_bytes = gzip.compress(audio_bytes)
     frame = _generate_header(
@@ -68,20 +82,32 @@ def _build_audio_request(audio_bytes: bytes, *, last: bool) -> bytes:
 def _parse_response(frame: bytes) -> dict[str, object]:
     header_size = frame[0] & 0x0F
     message_type = frame[1] >> 4
+    message_flags = frame[1] & 0x0F
     compression = frame[2] & 0x0F
     payload = frame[header_size * 4 :]
-    result: dict[str, object] = {}
-    payload_bytes: bytes | None = None
+    result: dict[str, object] = {
+        "messageType": message_type,
+        "messageFlags": message_flags,
+    }
+    offset = 0
 
-    if message_type == _SERVER_FULL_RESPONSE:
-        payload_bytes = payload[4:]
-    elif message_type == _SERVER_ACK:
-        if len(payload) >= 8:
-            payload_bytes = payload[8:]
-    elif message_type == _SERVER_ERROR_RESPONSE:
-        if len(payload) >= 8:
-            result["code"] = int.from_bytes(payload[:4], "big", signed=False)
-            payload_bytes = payload[8:]
+    # Fire ASR response packets may carry a 4-byte sequence field when bit0 is set.
+    if message_flags & 0b0001 and len(payload) >= 4:
+        result["sequence"] = int.from_bytes(payload[:4], "big", signed=True)
+        offset += 4
+
+    if message_type == _SERVER_ERROR_RESPONSE:
+        if len(payload) < offset + 8:
+            return result
+        result["code"] = int.from_bytes(payload[offset : offset + 4], "big", signed=False)
+        offset += 4
+
+    if len(payload) < offset + 4:
+        return result
+
+    payload_size = int.from_bytes(payload[offset : offset + 4], "big", signed=False)
+    offset += 4
+    payload_bytes = payload[offset : offset + payload_size]
 
     if payload_bytes is None:
         return result
@@ -90,7 +116,10 @@ def _parse_response(frame: bytes) -> dict[str, object]:
         payload_bytes = gzip.decompress(payload_bytes)
 
     if payload_bytes:
-        result["payload"] = json.loads(payload_bytes.decode("utf-8"))
+        try:
+            result["payload"] = json.loads(payload_bytes.decode("utf-8"))
+        except json.JSONDecodeError:
+            result["payloadText"] = payload_bytes.decode("utf-8", errors="ignore")
     return result
 
 
@@ -109,6 +138,11 @@ def resolve_audio_config(mime_type: str) -> VolcengineAudioConfig:
 
 def extract_transcript(payload: dict[str, object]) -> str:
     items = payload.get("result")
+    if isinstance(items, dict):
+        text = items.get("text")
+        if isinstance(text, str):
+            return text.strip()
+        return ""
     if not isinstance(items, list):
         return ""
 
@@ -121,6 +155,67 @@ def extract_transcript(payload: dict[str, object]) -> str:
     return "".join(parts)
 
 
+def _extract_payload_or_raise(response: dict[str, object]) -> dict[str, object] | None:
+    payload = response.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("error"), str) and payload["error"].strip():
+        raise RuntimeError(str(payload["error"]))
+    if isinstance(response.get("code"), int) and int(response["code"]) != _SUCCESS_CODE:
+        raise RuntimeError(str(payload.get("error") or payload.get("message") or "火山 ASR 识别失败。"))
+    if int(payload.get("code", _SUCCESS_CODE)) != _SUCCESS_CODE:
+        raise RuntimeError(str(payload.get("message", "火山 ASR 识别失败。")))
+    return payload
+
+
+async def _recv_final_payload(
+    websocket,
+    *,
+    latest_payload: dict[str, object],
+    timeout_seconds: float = _FINAL_RESULT_TIMEOUT_SECONDS,
+    max_frames: int = _FINAL_RESULT_MAX_FRAMES,
+) -> dict[str, object]:
+    current_payload = latest_payload
+    for index in range(max_frames):
+        try:
+            frame = await asyncio.wait_for(websocket.recv(), timeout=timeout_seconds)
+        except websockets.ConnectionClosedOK as exc:
+            logger.info(
+                "asr trailing recv closed normally: waited_frames=%s close_code=%s reason=%s has_transcript=%s",
+                index,
+                exc.code,
+                exc.reason,
+                bool(extract_transcript(current_payload)),
+            )
+            break
+        except asyncio.TimeoutError:
+            logger.info(
+                "asr trailing recv timeout: waited_frames=%s has_transcript=%s",
+                index,
+                bool(extract_transcript(current_payload)),
+            )
+            break
+
+        response = _parse_response(frame)
+        payload = _extract_payload_or_raise(response)
+        logger.info(
+            "asr trailing frame: index=%s message_type=%s message_flags=%s sequence=%s has_payload=%s has_transcript=%s",
+            index,
+            response.get("messageType"),
+            response.get("messageFlags"),
+            response.get("sequence"),
+            payload is not None,
+            bool(payload and extract_transcript(payload)),
+        )
+        if payload is None:
+            continue
+        current_payload = payload
+        if extract_transcript(current_payload):
+            break
+
+    return current_payload
+
+
 class VolcengineAsrClient:
     async def transcribe_chunks(self, chunks: list[AudioChunk]) -> str:
         if not chunks:
@@ -130,11 +225,10 @@ class VolcengineAsrClient:
             raise ValueError(
                 "火山 ASR 缺少鉴权配置，请设置 `VOLCENGINE_SPEECH_API_KEY`。"
             )
-        headers = {
-            "X-Api-Key": settings.volcengine_speech_api_key,
-            "X-Api-Resource-Id": settings.volcengine_asr_resource_id,
-            "X-Api-Connect-Id": str(uuid4()),
-        }
+        headers = build_speech_ws_headers(
+            resource_id=settings.volcengine_asr_resource_id,
+            connect_id=str(uuid4()),
+        )
 
         audio_config = resolve_audio_config(chunks[0].mime_type)
         request_payload = {
@@ -174,13 +268,43 @@ class VolcengineAsrClient:
                 audio_bytes = base64.b64decode(chunk.base64_audio)
                 if not audio_bytes:
                     continue
-                await ws.send(_build_audio_request(audio_bytes, last=index == len(chunks) - 1))
+                is_last_chunk = index == len(chunks) - 1
+                send_interval_seconds = _resolve_send_interval_seconds(chunk.duration_ms)
+                logger.info(
+                    "asr send frame: chunk_index=%s is_last_chunk=%s duration_ms=%s interval_ms=%s audio_bytes=%s",
+                    index,
+                    is_last_chunk,
+                    chunk.duration_ms,
+                    round(send_interval_seconds * 1000),
+                    len(audio_bytes),
+                )
+                request_bytes = _build_audio_request(
+                    audio_bytes,
+                    last=is_last_chunk,
+                )
+                await ws.send(request_bytes)
                 response = _parse_response(await ws.recv())
-                payload = response.get("payload")
-                if isinstance(payload, dict):
-                    if int(payload.get("code", _SUCCESS_CODE)) != _SUCCESS_CODE:
-                        raise RuntimeError(str(payload.get("message", "火山 ASR 识别失败。")))
+                payload = _extract_payload_or_raise(response)
+                logger.info(
+                    "asr receive frame: chunk_index=%s is_last_chunk=%s message_type=%s message_flags=%s sequence=%s has_payload=%s has_transcript=%s",
+                    index,
+                    is_last_chunk,
+                    response.get("messageType"),
+                    response.get("messageFlags"),
+                    response.get("sequence"),
+                    payload is not None,
+                    bool(payload and extract_transcript(payload)),
+                )
+                if payload is not None:
                     latest_payload = payload
+                if not is_last_chunk:
+                    await asyncio.sleep(send_interval_seconds)
+
+            if not extract_transcript(latest_payload):
+                latest_payload = await _recv_final_payload(
+                    ws,
+                    latest_payload=latest_payload,
+                )
 
         transcript = extract_transcript(latest_payload)
         if not transcript:
