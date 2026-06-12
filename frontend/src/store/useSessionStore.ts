@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type { ChatMessage, ServerEvent } from "@/lib/ws-types";
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "closed";
-type SessionStatus = "idle" | "ready" | "recording" | "transcribing" | "streaming" | "closed" | "error";
+type SessionStatus = "idle" | "ready" | "recording" | "recognizing" | "transcribing" | "streaming" | "closed" | "error";
 type VisionStatus = "idle" | "preview" | "capturing" | "summarizing" | "ready" | "error";
 type Keyframe = {
   id: string;
@@ -29,7 +29,7 @@ type SessionState = {
   visionSummary: string;
   keyframes: Keyframe[];
   setConnectionStatus: (status: ConnectionStatus) => void;
-  setRecordingState: (status: "recording" | "transcribing" | "ready", level?: number) => void;
+  setRecordingState: (status: "recording" | "recognizing" | "transcribing" | "ready", level?: number) => void;
   setRecordedChunks: (count: number) => void;
   setVisionEnabled: (enabled: boolean) => void;
   setVisionStatus: (status: VisionStatus, systemMessage?: string) => void;
@@ -39,18 +39,7 @@ type SessionState = {
   handleServerEvent: (event: ServerEvent) => void;
 };
 
-const initialMessages: ChatMessage[] = [
-  {
-    id: "initial-assistant",
-    role: "assistant",
-    content: "当前工作台默认走火山多模态链路，语音、视觉、文本与语音合成都已统一到火山体系。",
-  },
-  {
-    id: "initial-user",
-    role: "user",
-    content: "点击“开始会话”并完成一轮录音后，页面会依次展示火山 ASR transcript、视觉摘要和流式 AI 回复。",
-  },
-];
+const initialMessages: ChatMessage[] = [];
 
 export const useSessionStore = create<SessionState>((set) => ({
   connectionStatus: "idle",
@@ -86,8 +75,10 @@ export const useSessionStore = create<SessionState>((set) => ({
       systemMessage:
         status === "recording"
           ? "正在监听你的语音输入，静音 1.5 秒后自动提交。"
-          : status === "transcribing"
+          : status === "recognizing"
             ? "语音已提交，正在等待 ASR 识别结果。"
+          : status === "transcribing"
+            ? "语音识别完成，正在等待 AI 回复。"
             : state.systemMessage,
     }));
   },
@@ -212,14 +203,6 @@ export const useSessionStore = create<SessionState>((set) => ({
                   }
                 : frame,
             ),
-            messages: [
-              ...state.messages,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: `视觉摘要：${event.summary}`,
-              },
-            ],
             systemMessage: `关键帧视觉摘要已返回，识别来源为 ${event.provider}。`,
           };
 
