@@ -295,12 +295,12 @@ export default function Home() {
                 ))}
               </div>
               <div className="min-w-0 flex-1">
-                <strong className="block text-sm text-white">阶段 4</strong>
-                <span className="text-sm text-slate-400">多模态上下文编排、流式回复与会话延续</span>
+                <strong className="block text-sm text-white">阶段 5</strong>
+                <span className="text-sm text-slate-400">火山语音、视觉、文本与流式回复统一接入</span>
               </div>
               <Badge variant="muted">
                 <Activity className="mr-2 size-3.5" />
-                流式回复联调中
+                火山全链路联调中
               </Badge>
             </div>
           </CardContent>

@@ -61,10 +61,10 @@ cd frontend && npm run check
 ## 环境变量
 复制 `.env.example` 为 `.env` 后按需填写模型密钥。
 
-- `ASR_PROVIDER=mock`：默认启用 mock ASR，方便在无云端密钥环境下联调
-- `VISION_PROVIDER=mock`：默认启用 mock 视觉摘要，方便在无真实视觉模型时跑通关键帧链路
-- `LLM_PROVIDER=mock`：默认启用 mock LLM，方便在无真实文本模型时跑通流式回复链路
-- `TTS_PROVIDER=mock`：默认启用 mock TTS；切换到 `volcengine` 后可通过后端接口调用火山语音合成
+- `ASR_PROVIDER=volcengine`：默认通过豆包流式 ASR 识别前端上报的 16k PCM 分片
+- `VISION_PROVIDER=volcengine`：默认通过火山方舟视觉模型返回关键帧摘要
+- `LLM_PROVIDER=volcengine`：默认通过火山方舟文本模型生成流式回复
+- `TTS_PROVIDER=volcengine`：默认通过豆包语音合成接口返回播放音频
 - `VOLCENGINE_SPEECH_API_KEY`：豆包语音统一 API Key，优先用于火山 ASR / TTS 鉴权
 - `VOLCENGINE_TTS_APP_ID / VOLCENGINE_TTS_ACCESS_TOKEN`：火山 TTS 旧版鉴权配置，未设置统一 API Key 时可继续兼容
 - `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
@@ -72,6 +72,7 @@ cd frontend && npm run check
 - `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`：火山流式 ASR 资源与语言配置
 - `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
+- 若本地暂时没有火山密钥，可手动把对应 provider 切回 `mock` 保留页面联调能力
 
 ## TTS 接口
 - `POST /api/tts/synthesize`

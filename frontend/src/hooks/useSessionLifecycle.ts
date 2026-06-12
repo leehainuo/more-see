@@ -125,7 +125,7 @@ export function useSessionLifecycle() {
     if (visionEnabled) {
       await startPreview();
     }
-    appendUserMessage("开始一次多模态会话联调，准备录音、抓取关键帧，并等待流式 AI 回复。");
+    appendUserMessage("开始一次火山多模态会话，准备上传 PCM 语音、抓取关键帧，并等待流式 AI 回复。");
     client.send({
       type: "session.start",
       inputSource,
