@@ -1,29 +1,36 @@
-import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Activity, Play, Power, RefreshCw, Radio } from "lucide-react";
 
+import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { fetchHealth } from "@/lib/api";
-
-const messages = [
-  {
-    role: "AI",
-    content: "React + shadcn/ui 骨架已接管前端。下一阶段将接入 WebSocket 会话与流式消息。",
-    tone: "ai",
-  },
-  {
-    role: "你",
-    content: "先把前后端基线稳定下来，再逐步接入麦克风、关键帧和多模态对话。",
-    tone: "user",
-  },
-];
+import { useSessionStore } from "@/store/useSessionStore";
 
 export default function Home() {
   const [statusText, setStatusText] = useState("服务检测中");
   const [healthText, setHealthText] = useState("正在检查 FastAPI 服务状态。");
   const [loading, setLoading] = useState(false);
+  const messages = useSessionStore((state) => state.messages);
+  const systemMessage = useSessionStore((state) => state.systemMessage);
+  const resetMessages = useSessionStore((state) => state.resetMessages);
+  const { connectionStatus, sessionId, sessionStatus, reconnect, startSession, closeSession } =
+    useSessionLifecycle();
+
+  const lifecycleBadge = useMemo(() => {
+    if (connectionStatus === "connecting") {
+      return "通道连接中";
+    }
+    if (connectionStatus === "connected") {
+      return sessionId ? "会话已建立" : "通道已连接";
+    }
+    if (connectionStatus === "closed") {
+      return "通道已关闭";
+    }
+    return "等待连接";
+  }, [connectionStatus, sessionId]);
 
   const refreshHealth = async () => {
     setLoading(true);
@@ -56,7 +63,10 @@ export default function Home() {
                   摄像头 / 屏幕双视觉工作台
                 </h2>
               </div>
-              <Badge>{statusText}</Badge>
+              <div className="flex flex-wrap gap-2">
+                <Badge>{statusText}</Badge>
+                <Badge variant="muted">{lifecycleBadge}</Badge>
+              </div>
             </div>
 
             <div className="relative min-h-[640px] overflow-hidden rounded-[1.25rem] border border-cyan-400/20 bg-white/[0.03] shadow-glow">
@@ -69,7 +79,7 @@ export default function Home() {
                 <div className="max-w-xl rounded-[1.25rem] border border-white/10 bg-black/30 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur">
                   <p className="text-lg text-slate-100">这里将承载摄像头预览、屏幕共享和注意力框。</p>
                   <p className="mt-3 text-sm text-slate-400">
-                    当前阶段先完成 React + shadcn/ui 黑白工作台骨架，后续逐步接入设备采集与多模态对话。
+                    当前阶段已进入 WebSocket 会话主链路开发，页面会展示连接状态、会话状态和模拟流式回复。
                   </p>
                 </div>
               </div>
@@ -87,27 +97,70 @@ export default function Home() {
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">对话流</p>
                 <h2 className="font-['Oswald','Noto_Sans_SC',sans-serif] text-[clamp(1.4rem,2.7vw,2rem)] tracking-[0.08em]">
-                  分阶段接入语音、视觉与流式回答
+                  WebSocket 生命周期与假流式回复联调
                 </h2>
               </div>
-              <Button variant="secondary" onClick={() => void refreshHealth()}>
-                <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
-                刷新状态
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => void refreshHealth()}>
+                  <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
+                  刷新状态
+                </Button>
+                <Button variant="secondary" onClick={reconnect}>
+                  <Radio className="mr-2 size-4" />
+                  重连通道
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={startSession} disabled={connectionStatus !== "connected" || sessionStatus === "streaming"}>
+                  <Play className="mr-2 size-4" />
+                  开始会话
+                </Button>
+                <Button variant="secondary" onClick={closeSession} disabled={!sessionId}>
+                  <Power className="mr-2 size-4" />
+                  结束会话
+                </Button>
+                <Button variant="secondary" onClick={resetMessages}>
+                  清空演示消息
+                </Button>
+              </div>
+              <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                  <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">连接状态</span>
+                  <p className="mt-2 text-slate-100">{connectionStatus}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                  <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">会话状态</span>
+                  <p className="mt-2 text-slate-100">{sessionStatus}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                  <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">会话 ID</span>
+                  <p className="mt-2 break-all text-slate-100">{sessionId ?? "尚未创建"}</p>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-1 flex-col gap-3 overflow-auto pr-1">
               {messages.map((message) => (
                 <article
-                  key={message.content}
+                  key={message.id}
                   className={`rounded-2xl border px-4 py-4 ${
-                    message.tone === "ai" ? "border-white/10 bg-[#1e1e1e]/90" : "border-white/10 bg-[#2a2a2a]/90"
+                    message.role === "assistant"
+                      ? "border-white/10 bg-[#1e1e1e]/90"
+                      : message.role === "user"
+                        ? "border-white/10 bg-[#2a2a2a]/90"
+                        : "border-cyan-400/35 bg-cyan-400/5"
                   }`}
                 >
                   <span className="mb-2 inline-block text-[11px] uppercase tracking-[0.24em] text-slate-400">
-                    {message.role}
+                    {message.role === "assistant" ? "AI" : message.role === "user" ? "你" : "系统"}
                   </span>
-                  <p className="text-sm text-slate-100">{message.content}</p>
+                  <p className="text-sm text-slate-100">
+                    {message.content}
+                    {message.streaming ? <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-cyan-300/80 align-middle" /> : null}
+                  </p>
                 </article>
               ))}
 
@@ -115,7 +168,8 @@ export default function Home() {
                 <span className="mb-2 inline-block text-[11px] uppercase tracking-[0.24em] text-slate-400">
                   系统
                 </span>
-                <p className="text-sm text-slate-100">{healthText}</p>
+                <p className="text-sm text-slate-100">{systemMessage}</p>
+                <p className="mt-2 text-xs text-slate-400">{healthText}</p>
               </article>
             </div>
 
@@ -130,10 +184,13 @@ export default function Home() {
                 ))}
               </div>
               <div className="min-w-0 flex-1">
-                <strong className="block text-sm text-white">阶段 0</strong>
-                <span className="text-sm text-slate-400">FastAPI API + React + shadcn/ui 工作台骨架</span>
+                <strong className="block text-sm text-white">阶段 1</strong>
+                <span className="text-sm text-slate-400">WebSocket 会话生命周期、连接状态与假流式回复</span>
               </div>
-              <Badge variant="muted">预计成本面板待接入</Badge>
+              <Badge variant="muted">
+                <Activity className="mr-2 size-3.5" />
+                会话事件联调中
+              </Badge>
             </div>
           </CardContent>
         </Card>
