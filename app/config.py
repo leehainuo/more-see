@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_port: int = 8000
     asr_provider: str = "mock"
     vision_provider: str = "mock"
+    llm_provider: str = "mock"
 
     model_config = SettingsConfigDict(
         env_file=".env",

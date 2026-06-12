@@ -105,11 +105,13 @@ export type ServerEvent =
   | {
       type: "llm.delta";
       sessionId: string;
+      turnId: string;
       text: string;
     }
   | {
       type: "llm.done";
       sessionId: string;
+      turnId: string;
       fullText: string;
     }
   | {

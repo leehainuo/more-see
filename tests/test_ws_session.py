@@ -5,6 +5,15 @@ from app.main import app
 client = TestClient(app)
 
 
+def receive_llm_stream_events(websocket) -> tuple[list[dict], dict]:
+    delta_events: list[dict] = []
+    while True:
+        event = websocket.receive_json()
+        if event["type"] == "llm.done":
+            return delta_events, event
+        delta_events.append(event)
+
+
 def test_session_start_audio_commit_returns_asr_result() -> None:
     with client.websocket_connect("/ws/session") as websocket:
         connection_event = websocket.receive_json()
@@ -51,13 +60,23 @@ def test_session_start_audio_commit_returns_asr_result() -> None:
             }
         )
         asr_event = websocket.receive_json()
+        generating_event = websocket.receive_json()
+        delta_events, done_event = receive_llm_stream_events(websocket)
         committed_event = websocket.receive_json()
 
         assert asr_event["type"] == "asr.result"
         assert asr_event["turnId"] == "turn-1"
         assert asr_event["provider"] == "mock"
         assert "模拟识别结果" in asr_event["transcript"]
+        assert generating_event["type"] == "session.status"
+        assert generating_event["message"] == "正在结合语音、视觉和会话上下文生成回复。"
+        assert delta_events
+        assert all(event["type"] == "llm.delta" for event in delta_events)
+        assert done_event["type"] == "llm.done"
+        assert done_event["turnId"] == "turn-1"
+        assert "mock LLM 流式回复" in done_event["fullText"]
         assert committed_event["type"] == "session.status"
+        assert committed_event["message"] == "多模态回复已完成，可以继续下一轮提问。"
 
 
 def test_session_frame_capture_and_commit_returns_vision_result() -> None:
@@ -112,6 +131,8 @@ def test_session_frame_capture_and_commit_returns_vision_result() -> None:
         )
         asr_event = websocket.receive_json()
         vision_event = websocket.receive_json()
+        generating_event = websocket.receive_json()
+        delta_events, done_event = receive_llm_stream_events(websocket)
         committed_event = websocket.receive_json()
 
         assert asr_event["type"] == "asr.result"
@@ -119,6 +140,11 @@ def test_session_frame_capture_and_commit_returns_vision_result() -> None:
         assert vision_event["frameId"] == "frame-1"
         assert vision_event["provider"] == "mock"
         assert "模拟视觉摘要" in vision_event["summary"]
+        assert generating_event["type"] == "session.status"
+        assert delta_events
+        assert done_event["type"] == "llm.done"
+        assert done_event["turnId"] == "turn-vision-1"
+        assert "画面信息补充为" in done_event["fullText"]
         assert committed_event["type"] == "session.status"
 
 
