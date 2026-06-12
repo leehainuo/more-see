@@ -43,12 +43,12 @@ const initialMessages: ChatMessage[] = [
   {
     id: "initial-assistant",
     role: "assistant",
-    content: "当前分支正在接入多模态会话编排、流式回复，并保留关键帧与 ASR 输入链路。",
+    content: "当前工作台默认走火山多模态链路，语音、视觉、文本与语音合成都已统一到火山体系。",
   },
   {
     id: "initial-user",
     role: "user",
-    content: "点击“开始会话”并完成一轮录音后，页面会依次展示 transcript、视觉摘要和流式 AI 回复。",
+    content: "点击“开始会话”并完成一轮录音后，页面会依次展示火山 ASR transcript、视觉摘要和流式 AI 回复。",
   },
 ];
 
@@ -170,6 +170,14 @@ export const useSessionStore = create<SessionState>((set) => ({
           };
 
         case "asr.result":
+          if (event.provider !== "volcengine") {
+            return {
+              sessionStatus: "ready",
+              recordedChunks: 0,
+              inputLevel: 0,
+              systemMessage: "本轮语音识别未成功，已跳过 AI 回复。请重试录音，或直接输入文字。",
+            };
+          }
           return {
             sessionStatus: "transcribing",
             recordedChunks: 0,

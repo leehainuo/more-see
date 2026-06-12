@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import WebSocket
 
-from app.adapters.asr_adapter import asr_adapter
+from app.adapters.asr_adapter import asr_adapter, is_fallback_transcript
 from app.state.session_store import session_store
 from app.services.conversation_service import conversation_service
 from app.services.vision_service import vision_service
+
+logger = logging.getLogger(__name__)
 
 
 class AudioService:
@@ -73,10 +76,31 @@ class AudioService:
             )
             return
 
-        result = await asr_adapter.transcribe(chunks)
+        try:
+            result = await asr_adapter.transcribe(chunks)
+        except Exception as exc:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "asr_failed",
+                    "message": str(exc),
+                }
+            )
+            return
+
         turn_id = payload.get("turnId", str(uuid.uuid4()))
         include_vision = bool(payload.get("includeVision", False))
         vision_summary: str | None = None
+
+        logger.info(
+            "audio turn commit: session_id=%s turn_id=%s chunk_count=%s duration_ms=%s provider=%s include_vision=%s",
+            session_id,
+            turn_id,
+            result["chunkCount"],
+            result["durationMs"],
+            result["provider"],
+            include_vision,
+        )
 
         await websocket.send_json(
             {
@@ -89,6 +113,31 @@ class AudioService:
                 "chunkCount": result["chunkCount"],
             }
         )
+
+        if str(result["provider"]) != "volcengine" or is_fallback_transcript(str(result["transcript"])):
+            diagnostic_message = str(
+                result.get("diagnosticMessage")
+                or "本轮语音识别未成功，已跳过 AI 回复与语音播报。请重试录音，或直接输入文字。"
+            )
+            logger.warning(
+                "audio turn skipped after asr fallback: session_id=%s turn_id=%s diagnostic_code=%s diagnostic=%s",
+                session_id,
+                turn_id,
+                result.get("diagnosticCode", "unknown"),
+                diagnostic_message,
+            )
+            await websocket.send_json(
+                {
+                    "type": "session.status",
+                    "sessionId": session_id,
+                    "level": "warning",
+                    "message": (
+                        f"本轮语音识别未成功，已跳过 AI 回复与语音播报。"
+                        f"{diagnostic_message}"
+                    ),
+                }
+            )
+            return
 
         if include_vision:
             vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
@@ -104,6 +153,13 @@ class AudioService:
                 )
             else:
                 vision_summary = str(vision_result["summary"])
+                logger.info(
+                    "vision summary attached to turn: session_id=%s turn_id=%s frame_id=%s provider=%s",
+                    session_id,
+                    turn_id,
+                    vision_result.get("frameId"),
+                    vision_result.get("provider"),
+                )
                 await websocket.send_json(
                     {
                         "type": "vision.result",
