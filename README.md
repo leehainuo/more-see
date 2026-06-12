@@ -52,6 +52,11 @@ uv run ruff check .
 cd frontend && npm run check
 ```
 
+## 自检接口
+- `GET /healthz`：基础存活检查
+- `GET /healthz/providers`：返回火山能力的配置级自检结果，不触发真实模型请求
+- `GET /healthz/providers?probe=true`：执行一次真实连通性探测，帮助确认 `ASR / TTS / LLM / Vision` 是配置问题、模型未开通还是网络 / 证书问题
+
 ## 目录说明
 - `app/`：FastAPI 应用与后续多模态服务编排层
 - `frontend/`：React + shadcn/ui 前端工作台

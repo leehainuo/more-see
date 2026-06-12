@@ -1,9 +1,10 @@
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.services.provider_health_service import get_provider_health
 from app.services.tts_service import tts_service
 
 router = APIRouter()
@@ -16,6 +17,11 @@ class TtsSynthesizeRequest(BaseModel):
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env}
+
+
+@router.get("/healthz/providers")
+async def provider_healthz(probe: bool = Query(default=False)) -> dict[str, object]:
+    return await get_provider_health(probe=probe)
 
 
 @router.get("/api/config/public")
