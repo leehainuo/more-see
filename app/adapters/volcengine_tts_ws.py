@@ -8,6 +8,7 @@ from uuid import uuid4
 import websockets
 
 from app.config import settings
+from app.utils.ssl_context import build_volcengine_ssl_context
 
 _WS_TTS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
 
@@ -197,6 +198,7 @@ async def synthesize_via_websocket(text: str) -> bytes:
         _WS_TTS_URL,
         additional_headers=headers,
         max_size=10 * 1024 * 1024,
+        ssl=build_volcengine_ssl_context(),
     ) as websocket:
         await websocket.send(_encode_event_frame(_EVENT_START_CONNECTION))
         await _wait_for_event(

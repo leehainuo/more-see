@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     volcengine_tts_sample_rate: int = 24000
     volcengine_asr_resource_id: str = "volc.seedasr.sauc.duration"
     volcengine_asr_language: str = "zh-CN"
+    volcengine_ssl_cert_file: str = ""
     ark_api_key: str = ""
     ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     ark_llm_model: str = "doubao-seed-1-6-251015"

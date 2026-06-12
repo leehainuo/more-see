@@ -10,6 +10,7 @@ import websockets
 
 from app.config import settings
 from app.state.session_store import AudioChunk
+from app.utils.ssl_context import build_volcengine_ssl_context
 
 _PROTOCOL_VERSION = 0b0001
 _CLIENT_FULL_REQUEST = 0b0001
@@ -160,6 +161,7 @@ class VolcengineAsrClient:
             _WS_URL,
             additional_headers=headers,
             max_size=10_000_000,
+            ssl=build_volcengine_ssl_context(),
         ) as ws:
             await ws.send(_build_full_request(request_payload))
             first_response = _parse_response(await ws.recv())

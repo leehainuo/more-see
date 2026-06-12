@@ -1,4 +1,5 @@
 import json
+import ssl
 
 import pytest
 
@@ -24,6 +25,27 @@ class FakeWebSocket:
         if not self._frames:
             raise RuntimeError("no_more_frames")
         return self._frames.pop(0)
+
+
+def test_build_ssl_context_uses_certifi_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.utils import ssl_context as ssl_module
+
+    monkeypatch.setattr(settings, "volcengine_ssl_cert_file", "")
+    monkeypatch.setattr(ssl_module.certifi, "where", lambda: "/tmp/certifi.pem")
+
+    recorded: dict[str, str] = {}
+    original = ssl.create_default_context
+
+    def fake_create_default_context(*, cafile=None, capath=None, cadata=None):
+        recorded["cafile"] = cafile
+        return original()
+
+    monkeypatch.setattr(ssl_module.ssl, "create_default_context", fake_create_default_context)
+
+    context = ssl_module.build_volcengine_ssl_context()
+
+    assert isinstance(context, ssl.SSLContext)
+    assert recorded["cafile"] == "/tmp/certifi.pem"
 
 
 @pytest.mark.asyncio
@@ -73,7 +95,10 @@ async def test_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None
         ]
     )
 
+    captured: dict[str, object] = {}
+
     def fake_connect(*args, **kwargs) -> FakeWebSocket:
+        captured.update(kwargs)
         return fake_socket
 
     monkeypatch.setattr(volcengine_tts_ws.websockets, "connect", fake_connect)
@@ -103,6 +128,7 @@ async def test_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None
 
     finish_connection = volcengine_tts_ws._decode_frame(fake_socket.sent_frames[4])
     assert finish_connection.event_type == 2
+    assert isinstance(captured["ssl"], ssl.SSLContext)
 
 
 @pytest.mark.asyncio

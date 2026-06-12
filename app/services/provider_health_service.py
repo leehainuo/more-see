@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage
 
 from app.adapters.langchain_ark import build_chat_model, extract_text_content
 from app.config import settings
+from app.utils.ssl_context import build_volcengine_ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ async def _probe_speech_ws(url: str, *, resource_id: str) -> tuple[bool, str]:
                 "X-Api-Connect-Id": str(uuid4()),
             },
             max_size=2 * 1024 * 1024,
+            ssl=build_volcengine_ssl_context(),
         ),
         timeout=10,
     )

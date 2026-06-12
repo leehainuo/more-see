@@ -73,6 +73,7 @@ cd frontend && npm run check
 - `VOLCENGINE_SPEECH_API_KEY`：豆包语音统一 API Key，用于火山 ASR / TTS 鉴权
 - `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
 - `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`：火山流式 ASR 资源与语言配置
+- `VOLCENGINE_SSL_CERT_FILE`：可选，自定义语音 WebSocket 使用的 CA 证书文件路径；默认使用项目内置 `certifi` 证书链
 - `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
 - 若本地暂时没有火山密钥，后端会自动进入降级处理并返回保守回复或兜底音频
