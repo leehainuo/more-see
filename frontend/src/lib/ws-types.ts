@@ -14,6 +14,16 @@ export type ClientEvent =
       durationMs: number;
     }
   | {
+      type: "frame.capture";
+      sessionId: string;
+      frameId: string;
+      inputSource: "camera" | "screen";
+      imageBase64: string;
+      width: number;
+      height: number;
+      capturedAt: string;
+    }
+  | {
       type: "turn.commit";
       sessionId: string;
       turnId: string;
@@ -55,6 +65,33 @@ export type ServerEvent =
       provider: string;
       durationMs: number;
       chunkCount: number;
+    }
+  | {
+      type: "frame.stored";
+      sessionId: string;
+      frameId: string;
+      inputSource: "camera" | "screen";
+      width: number;
+      height: number;
+      capturedAt: string;
+      message: string;
+    }
+  | {
+      type: "vision.result";
+      sessionId: string;
+      turnId: string;
+      frameId: string;
+      summary: string;
+      provider: string;
+      cacheHit: boolean;
+      capturedAt: string;
+    }
+  | {
+      type: "vision.error";
+      sessionId: string;
+      turnId: string;
+      code: string;
+      message: string;
     }
   | {
       type: "session.pong";

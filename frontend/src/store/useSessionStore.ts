@@ -4,6 +4,17 @@ import type { ChatMessage, ServerEvent } from "@/lib/ws-types";
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "closed";
 type SessionStatus = "idle" | "ready" | "recording" | "transcribing" | "streaming" | "closed" | "error";
+type VisionStatus = "idle" | "preview" | "capturing" | "summarizing" | "ready" | "error";
+type Keyframe = {
+  id: string;
+  dataUrl: string;
+  capturedAt: string;
+  inputSource: "camera" | "screen";
+  width: number;
+  height: number;
+  summary?: string;
+  turnId?: string;
+};
 
 type SessionState = {
   connectionStatus: ConnectionStatus;
@@ -13,9 +24,16 @@ type SessionState = {
   inputLevel: number;
   recordedChunks: number;
   messages: ChatMessage[];
+  visionEnabled: boolean;
+  visionStatus: VisionStatus;
+  visionSummary: string;
+  keyframes: Keyframe[];
   setConnectionStatus: (status: ConnectionStatus) => void;
   setRecordingState: (status: "recording" | "transcribing" | "ready", level?: number) => void;
   setRecordedChunks: (count: number) => void;
+  setVisionEnabled: (enabled: boolean) => void;
+  setVisionStatus: (status: VisionStatus, systemMessage?: string) => void;
+  addLocalKeyframe: (frame: Keyframe) => void;
   resetMessages: () => void;
   appendUserMessage: (content: string) => void;
   handleServerEvent: (event: ServerEvent) => void;
@@ -25,12 +43,12 @@ const initialMessages: ChatMessage[] = [
   {
     id: "initial-assistant",
     role: "assistant",
-    content: "当前分支正在接入麦克风采集、静音自动提交和 ASR 识别链路。",
+    content: "当前分支正在接入关键帧抓取、视觉摘要回传，并保留语音采集与 ASR 联调链路。",
   },
   {
     id: "initial-user",
     role: "user",
-    content: "点击“开始会话”后，再点击“开始录音”，静音 1.5 秒后会自动提交识别。",
+    content: "点击“开始会话”后，可打开视觉联动并在录音结束时自动抓取关键帧，随后同时查看 ASR 与视觉摘要结果。",
   },
 ];
 
@@ -42,6 +60,10 @@ export const useSessionStore = create<SessionState>((set) => ({
   inputLevel: 0,
   recordedChunks: 0,
   messages: initialMessages,
+  visionEnabled: true,
+  visionStatus: "idle",
+  visionSummary: "",
+  keyframes: [],
 
   setConnectionStatus: (status) => {
     set({
@@ -76,6 +98,29 @@ export const useSessionStore = create<SessionState>((set) => ({
     });
   },
 
+  setVisionEnabled: (enabled) => {
+    set({
+      visionEnabled: enabled,
+      visionStatus: enabled ? "preview" : "idle",
+      systemMessage: enabled ? "视觉联动已开启，会在录音结束时尝试抓取关键帧。" : "视觉联动已关闭，本轮仅执行语音识别。",
+    });
+  },
+
+  setVisionStatus: (status, systemMessage) => {
+    set((state) => ({
+      visionStatus: status,
+      systemMessage: systemMessage ?? state.systemMessage,
+    }));
+  },
+
+  addLocalKeyframe: (frame) => {
+    set((state) => ({
+      visionStatus: "capturing",
+      keyframes: [frame, ...state.keyframes].slice(0, 6),
+      systemMessage: "关键帧已抓取，正在等待后端视觉摘要。",
+    }));
+  },
+
   resetMessages: () => {
     set({
       messages: initialMessages,
@@ -84,6 +129,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       systemMessage: "等待连接 WebSocket 通道。",
       inputLevel: 0,
       recordedChunks: 0,
+      visionStatus: "idle",
+      visionSummary: "",
+      keyframes: [],
     });
   },
 
@@ -112,6 +160,7 @@ export const useSessionStore = create<SessionState>((set) => ({
           return {
             sessionId: event.sessionId,
             sessionStatus: "ready",
+            visionStatus: state.visionEnabled ? "preview" : "idle",
             systemMessage: `会话 ${event.sessionId.slice(0, 8)} 已创建，可持续接收事件。`,
           };
 
@@ -134,6 +183,42 @@ export const useSessionStore = create<SessionState>((set) => ({
               },
             ],
             systemMessage: `已完成 ${event.chunkCount} 段音频识别，识别来源为 ${event.provider}。`,
+          };
+
+        case "frame.stored":
+          return {
+            visionStatus: "summarizing",
+            systemMessage: event.message,
+          };
+
+        case "vision.result":
+          return {
+            visionStatus: "ready",
+            visionSummary: event.summary,
+            keyframes: state.keyframes.map((frame) =>
+              frame.id === event.frameId
+                ? {
+                    ...frame,
+                    summary: event.summary,
+                    turnId: event.turnId,
+                  }
+                : frame,
+            ),
+            messages: [
+              ...state.messages,
+              {
+                id: crypto.randomUUID(),
+                role: "system",
+                content: `视觉摘要：${event.summary}`,
+              },
+            ],
+            systemMessage: `关键帧视觉摘要已返回，识别来源为 ${event.provider}。`,
+          };
+
+        case "vision.error":
+          return {
+            visionStatus: "error",
+            systemMessage: `${event.code}: ${event.message}`,
           };
 
         case "session.pong":
@@ -196,6 +281,9 @@ export const useSessionStore = create<SessionState>((set) => ({
             sessionId: null,
             inputLevel: 0,
             recordedChunks: 0,
+            visionStatus: state.visionEnabled ? "preview" : "idle",
+            visionSummary: "",
+            keyframes: [],
             systemMessage: "会话已关闭，可以重新开始。",
           };
 

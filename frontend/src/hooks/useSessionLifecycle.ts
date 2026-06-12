@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 
+import { useVisualCapture } from "@/hooks/useVisualCapture";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
 import { SessionWebSocketClient } from "@/lib/ws-client";
 import { useSessionStore } from "@/store/useSessionStore";
@@ -8,9 +9,11 @@ export function useSessionLifecycle() {
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
   const sessionId = useSessionStore((state) => state.sessionId);
   const sessionStatus = useSessionStore((state) => state.sessionStatus);
+  const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const appendUserMessage = useSessionStore((state) => state.appendUserMessage);
 
   const client = useMemo(() => new SessionWebSocketClient(), []);
+  const inputSource = "camera" as const;
 
   useEffect(() => {
     client.onStatusChange((status) => {
@@ -72,17 +75,60 @@ export function useSessionLifecycle() {
     });
   };
 
-  const { inputLevel, recordedChunks, isCapturing, startCapture, stopCapture } = useVoiceCapture({
-    sessionId,
-    sendAudioChunk,
-    commitTurn,
+  const sendFrameCapture = (payload: {
+    sessionId: string;
+    frameId: string;
+    inputSource: "camera" | "screen";
+    imageBase64: string;
+    width: number;
+    height: number;
+    capturedAt: string;
+  }) => {
+    client.send({
+      type: "frame.capture",
+      ...payload,
+    });
+  };
+
+  const { bindVideoElement, isPreviewReady, startPreview, stopPreview, captureFrameForTurn } = useVisualCapture({
+    sendFrameCapture,
   });
 
-  const startSession = () => {
-    appendUserMessage("开始一次语音会话联调，准备录音并验证静音自动提交。");
+  const { inputLevel, recordedChunks, isCapturing, startCapture, stopCapture } = useVoiceCapture({
+    sessionId,
+    inputSource,
+    visionEnabled,
+    sendAudioChunk,
+    commitTurn,
+    captureFrameForTurn,
+  });
+
+  useEffect(() => {
+    if (sessionId) {
+      return;
+    }
+    stopPreview();
+  }, [sessionId, stopPreview]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    if (visionEnabled) {
+      void startPreview();
+      return;
+    }
+    stopPreview();
+  }, [sessionId, startPreview, stopPreview, visionEnabled]);
+
+  const startSession = async () => {
+    if (visionEnabled) {
+      await startPreview();
+    }
+    appendUserMessage("开始一次多模态会话联调，准备录音、抓取关键帧并回显视觉摘要。");
     client.send({
       type: "session.start",
-      inputSource: "camera",
+      inputSource,
       deviceInfo: {
         micLabel: "Default microphone",
         cameraLabel: "Default camera",
@@ -112,6 +158,9 @@ export function useSessionLifecycle() {
     inputLevel,
     recordedChunks,
     isCapturing,
+    isPreviewReady,
+    bindVideoElement,
+    visionEnabled,
     reconnect,
     startSession,
     closeSession,

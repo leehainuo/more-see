@@ -6,6 +6,7 @@ from fastapi import WebSocket
 
 from app.adapters.asr_adapter import asr_adapter
 from app.state.session_store import session_store
+from app.services.vision_service import vision_service
 
 
 class AudioService:
@@ -73,6 +74,7 @@ class AudioService:
 
         result = await asr_adapter.transcribe(chunks)
         turn_id = payload.get("turnId", str(uuid.uuid4()))
+        include_vision = bool(payload.get("includeVision", False))
 
         await websocket.send_json(
             {
@@ -85,12 +87,37 @@ class AudioService:
                 "chunkCount": result["chunkCount"],
             }
         )
+
+        if include_vision:
+            vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
+            if vision_result is None:
+                await websocket.send_json(
+                    {
+                        "type": "vision.error",
+                        "sessionId": session_id,
+                        "turnId": turn_id,
+                        "code": "missing_frame",
+                        "message": "当前轮次未捕获到关键帧，本次仅返回语音识别结果。",
+                    }
+                )
+            else:
+                await websocket.send_json(
+                    {
+                        "type": "vision.result",
+                        **vision_result,
+                    }
+                )
+
         await websocket.send_json(
             {
                 "type": "session.status",
                 "sessionId": session_id,
                 "level": "info",
-                "message": "语音已自动提交并完成识别，下一阶段将接入视觉和 LLM 编排。",
+                "message": (
+                    "语音已自动提交并完成识别。"
+                    if not include_vision
+                    else "语音与关键帧已完成联动，本轮视觉摘要已回传。"
+                ),
             }
         )
 

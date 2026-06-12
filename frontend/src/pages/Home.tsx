@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Mic, Pause, Play, Power, RefreshCw, Radio } from "lucide-react";
+import { Activity, Camera, Eye, Mic, Pause, Play, Power, RefreshCw, Radio } from "lucide-react";
 
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { AppShell } from "@/components/AppShell";
@@ -15,6 +15,11 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const messages = useSessionStore((state) => state.messages);
   const systemMessage = useSessionStore((state) => state.systemMessage);
+  const visionEnabled = useSessionStore((state) => state.visionEnabled);
+  const visionStatus = useSessionStore((state) => state.visionStatus);
+  const visionSummary = useSessionStore((state) => state.visionSummary);
+  const keyframes = useSessionStore((state) => state.keyframes);
+  const setVisionEnabled = useSessionStore((state) => state.setVisionEnabled);
   const resetMessages = useSessionStore((state) => state.resetMessages);
   const {
     connectionStatus,
@@ -23,6 +28,8 @@ export default function Home() {
     inputLevel,
     recordedChunks,
     isCapturing,
+    isPreviewReady,
+    bindVideoElement,
     reconnect,
     startSession,
     closeSession,
@@ -77,26 +84,66 @@ export default function Home() {
               <div className="flex flex-wrap gap-2">
                 <Badge>{statusText}</Badge>
                 <Badge variant="muted">{lifecycleBadge}</Badge>
+                <Badge variant="muted">{visionEnabled ? `视觉 ${visionStatus}` : "视觉已关闭"}</Badge>
               </div>
             </div>
 
             <div className="relative min-h-[640px] overflow-hidden rounded-[1.25rem] border border-cyan-400/20 bg-white/[0.03] shadow-glow">
               <div className="pointer-events-none absolute inset-4 rounded-[1.125rem] border border-dashed border-white/10" />
               <Badge className="absolute left-4 top-4">Camera</Badge>
-              <Badge className="absolute right-4 top-4">AI 注意力热区预留</Badge>
+              <Badge className="absolute right-4 top-4">{isPreviewReady ? "关键帧抓取已就绪" : "等待摄像头预览"}</Badge>
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.12),transparent_35%),linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[length:auto,36px_36px,36px_36px] opacity-70" />
 
-              <div className="absolute inset-0 flex items-center justify-center p-12">
-                <div className="max-w-xl rounded-[1.25rem] border border-white/10 bg-black/30 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur">
-                  <p className="text-lg text-slate-100">这里将承载摄像头预览、屏幕共享和注意力框。</p>
-                  <p className="mt-3 text-sm text-slate-400">
-                    当前阶段已进入语音采集与 ASR 联调，页面会展示录音状态、静音自动提交和识别结果。
-                  </p>
+              <video
+                ref={bindVideoElement}
+                className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
+                  isPreviewReady ? "opacity-80" : "opacity-0"
+                }`}
+                autoPlay
+                playsInline
+                muted
+              />
+
+              {!isPreviewReady ? (
+                <div className="absolute inset-0 flex items-center justify-center p-12">
+                  <div className="max-w-xl rounded-[1.25rem] border border-white/10 bg-black/30 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur">
+                    <p className="text-lg text-slate-100">这里将承载摄像头预览、关键帧抓取和视觉摘要联动。</p>
+                    <p className="mt-3 text-sm text-slate-400">
+                      开启会话后会尝试拉起摄像头预览；若视觉联动关闭，则仍可继续执行纯语音识别。
+                    </p>
+                  </div>
                 </div>
+              ) : null}
+
+              <div className="absolute bottom-6 left-6 max-w-md rounded-3xl border border-white/10 bg-black/35 px-5 py-4 backdrop-blur">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-slate-400">
+                  <Eye className="size-4" />
+                  <span>视觉摘要</span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-100">
+                  {visionSummary || "当前还没有关键帧摘要。完成一次录音提交后，这里会显示本轮视觉理解结果。"}
+                </p>
               </div>
 
-              <div className="absolute bottom-6 right-6 grid aspect-square w-40 place-items-center rounded-full border border-white/15 bg-white/[0.06] text-sm text-slate-400 shadow-2xl">
-                自拍小窗
+              {keyframes.length > 0 ? (
+                <div className="absolute bottom-6 right-6 flex max-w-[46%] gap-3 overflow-x-auto rounded-3xl border border-white/10 bg-black/40 p-3 backdrop-blur">
+                  {keyframes.slice(0, 3).map((frame) => (
+                    <div key={frame.id} className="w-32 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/50">
+                      <img src={frame.dataUrl} alt="关键帧预览" className="h-20 w-full object-cover" />
+                      <div className="space-y-1 px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{frame.inputSource}</p>
+                        <p className="text-xs text-slate-200">{frame.summary ? "摘要已返回" : "等待摘要"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="absolute right-6 top-16 grid aspect-square w-40 place-items-center rounded-full border border-white/15 bg-white/[0.06] text-sm text-slate-400 shadow-2xl">
+                <div className="text-center">
+                  <Camera className="mx-auto mb-2 size-5" />
+                  自拍小窗
+                </div>
               </div>
             </div>
           </CardContent>
@@ -108,7 +155,7 @@ export default function Home() {
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">对话流</p>
                 <h2 className="font-['Oswald','Noto_Sans_SC',sans-serif] text-[clamp(1.4rem,2.7vw,2rem)] tracking-[0.08em]">
-                  麦克风采集、静音自动提交与 ASR 联调
+                  语音采集、关键帧抓取与视觉摘要联调
                 </h2>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -125,9 +172,17 @@ export default function Home() {
 
             <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <div className="flex flex-wrap gap-2">
-                <Button onClick={startSession} disabled={connectionStatus !== "connected" || sessionStatus === "streaming"}>
+                <Button onClick={() => void startSession()} disabled={connectionStatus !== "connected" || sessionStatus === "streaming"}>
                   <Play className="mr-2 size-4" />
                   开始会话
+                </Button>
+                <Button
+                  variant={visionEnabled ? "secondary" : "default"}
+                  onClick={() => setVisionEnabled(!visionEnabled)}
+                  disabled={isCapturing}
+                >
+                  <Eye className="mr-2 size-4" />
+                  {visionEnabled ? "关闭视觉联动" : "开启视觉联动"}
                 </Button>
                 <Button
                   variant={isCapturing ? "secondary" : "default"}
@@ -159,6 +214,10 @@ export default function Home() {
                   <p className="mt-2 text-slate-100">{recordedChunks} 段</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                  <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">关键帧</span>
+                  <p className="mt-2 text-slate-100">{keyframes.length} 张</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
                   <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">会话 ID</span>
                   <p className="mt-2 break-all text-slate-100">{sessionId ?? "尚未创建"}</p>
                 </div>
@@ -167,7 +226,9 @@ export default function Home() {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <span className="text-[11px] uppercase tracking-[0.24em] text-slate-400">聆听波形</span>
                   <span className="text-xs text-slate-400">
-                    {isCapturing ? "录音中，静音 1.5 秒自动提交" : "点击开始录音后进入监听"}
+                    {isCapturing
+                      ? `录音中，静音 1.5 秒自动提交${visionEnabled ? "并抓取关键帧" : ""}`
+                      : "点击开始录音后进入监听"}
                   </span>
                 </div>
                 <div className="flex h-10 items-end gap-1.5" aria-hidden="true">
@@ -234,12 +295,12 @@ export default function Home() {
                 ))}
               </div>
               <div className="min-w-0 flex-1">
-                <strong className="block text-sm text-white">阶段 2</strong>
-                <span className="text-sm text-slate-400">麦克风采集、静音自动提交与 ASR 识别回传</span>
+                <strong className="block text-sm text-white">阶段 3</strong>
+                <span className="text-sm text-slate-400">关键帧抓取、视觉摘要回传与语音识别联动</span>
               </div>
               <Badge variant="muted">
                 <Activity className="mr-2 size-3.5" />
-                语音识别联调中
+                多模态联调中
               </Badge>
             </div>
           </CardContent>
