@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useVisualCapture } from "@/hooks/useVisualCapture";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
-import { synthesizeTts } from "@/lib/api";
+import { StreamingPcmPlayer } from "@/lib/streaming-pcm-player";
 import { SessionWebSocketClient } from "@/lib/ws-client";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -16,95 +16,46 @@ export function useSessionLifecycle() {
   const setInputSource = useSessionStore((state) => state.setInputSource);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const appendUserMessage = useSessionStore((state) => state.appendUserMessage);
+  const assistantAudioStatus = useSessionStore((state) => state.assistantAudioStatus);
 
   const client = useMemo(() => new SessionWebSocketClient(), []);
   const speechTokenRef = useRef(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const pcmPlayerRef = useRef<StreamingPcmPlayer | null>(null);
   const playbackPhaseRef = useRef<"idle" | "loading" | "playing">("idle");
   const autoStartingCaptureRef = useRef(false);
   const startSessionRef = useRef<() => void>(() => undefined);
   const tryStartHandsFreeCaptureRef = useRef<() => void>(() => undefined);
-  const speakAssistantTextRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   const stopAssistantSpeechRef = useRef<() => void>(() => undefined);
   const pendingSessionStartRef = useRef(false);
   const latestSessionRef = useRef<{
     sessionId: string | null;
     sessionStatus: typeof sessionStatus;
     isCapturing: boolean;
+    assistantAudioStatus: typeof assistantAudioStatus;
   }>({
     sessionId: null,
     sessionStatus: "idle",
     isCapturing: false,
+    assistantAudioStatus: "idle",
   });
 
-  const revokeCurrentAudioUrl = useCallback(() => {
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
+  const ensurePcmPlayer = useCallback(() => {
+    if (!pcmPlayerRef.current) {
+      pcmPlayerRef.current = new StreamingPcmPlayer();
     }
+    pcmPlayerRef.current.setOnIdle(() => {
+      playbackPhaseRef.current = "idle";
+      useSessionStore.getState().markAssistantAudioPlaybackComplete();
+      tryStartHandsFreeCaptureRef.current();
+    });
+    return pcmPlayerRef.current;
   }, []);
 
   const stopAssistantSpeech = useCallback(() => {
     speechTokenRef.current += 1;
     playbackPhaseRef.current = "idle";
-    audioRef.current?.pause();
-    audioRef.current = null;
-    revokeCurrentAudioUrl();
-  }, [revokeCurrentAudioUrl]);
-
-  const speakAssistantText = useCallback(async (text: string) => {
-    const cleanedText = text.trim();
-    if (!cleanedText) {
-      return;
-    }
-
-    const token = speechTokenRef.current + 1;
-    speechTokenRef.current = token;
-    playbackPhaseRef.current = "loading";
-    const result = await synthesizeTts(cleanedText);
-    if (speechTokenRef.current !== token) {
-      playbackPhaseRef.current = "idle";
-      return;
-    }
-
-    const binary = window.atob(result.audioBase64);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const blob = new Blob([bytes], { type: result.mimeType });
-    const url = URL.createObjectURL(blob);
-
-    audioRef.current?.pause();
-    revokeCurrentAudioUrl();
-
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audioUrlRef.current = url;
-    playbackPhaseRef.current = "playing";
-
-    audio.onended = () => {
-      playbackPhaseRef.current = "idle";
-      if (audioRef.current === audio) {
-        audioRef.current = null;
-      }
-      revokeCurrentAudioUrl();
-      window.setTimeout(() => {
-        tryStartHandsFreeCaptureRef.current();
-      }, 0);
-    };
-
-    audio.onpause = () => {
-      if (audio.ended) {
-        return;
-      }
-      playbackPhaseRef.current = "idle";
-      if (audioRef.current === audio) {
-        audioRef.current = null;
-      }
-      revokeCurrentAudioUrl();
-    };
-
-    await audio.play();
-  }, [revokeCurrentAudioUrl]);
+    pcmPlayerRef.current?.stop();
+  }, []);
 
   const sendAudioChunk = (payload: {
     sessionId: string;
@@ -160,7 +111,7 @@ export function useSessionLifecycle() {
     onInputSourceChange: setInputSource,
   });
 
-  const { inputLevel, recordedChunks, isCapturing, startCapture, stopCapture } = useVoiceCapture({
+  const { inputLevel, recordedChunks, isCapturing, startCapture, stopCapture, commitCurrentTurn } = useVoiceCapture({
     sessionId,
     inputSource,
     visionEnabled,
@@ -174,8 +125,9 @@ export function useSessionLifecycle() {
       sessionId,
       sessionStatus,
       isCapturing,
+      assistantAudioStatus,
     };
-  }, [isCapturing, sessionId, sessionStatus]);
+  }, [assistantAudioStatus, isCapturing, sessionId, sessionStatus]);
 
   const tryStartHandsFreeCapture = useCallback(async () => {
     const current = latestSessionRef.current;
@@ -184,7 +136,8 @@ export function useSessionLifecycle() {
       !current.sessionId ||
       current.sessionStatus !== "ready" ||
       current.isCapturing ||
-      playbackPhaseRef.current !== "idle"
+      playbackPhaseRef.current !== "idle" ||
+      current.assistantAudioStatus !== "idle"
     ) {
       return;
     }
@@ -204,10 +157,6 @@ export function useSessionLifecycle() {
   }, [tryStartHandsFreeCapture]);
 
   useEffect(() => {
-    speakAssistantTextRef.current = speakAssistantText;
-  }, [speakAssistantText]);
-
-  useEffect(() => {
     stopAssistantSpeechRef.current = stopAssistantSpeech;
   }, [stopAssistantSpeech]);
 
@@ -217,24 +166,40 @@ export function useSessionLifecycle() {
     });
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
-      if (event.type === "llm.done") {
-        void speakAssistantTextRef.current(event.fullText).catch((error: unknown) => {
-          playbackPhaseRef.current = "idle";
-          const message = error instanceof Error ? error.message : "未知错误";
+      if (event.type === "tts.start") {
+        speechTokenRef.current += 1;
+        playbackPhaseRef.current = "loading";
+        ensurePcmPlayer().stop();
+      }
+      if (event.type === "tts.chunk") {
+        if (event.mimeType !== "audio/pcm") {
           useSessionStore.setState({
-            systemMessage: `AI 文本已返回，但语音播报失败：${message}`,
+            systemMessage: `暂不支持 ${event.mimeType} 的流式播放格式。`,
           });
-          tryStartHandsFreeCaptureRef.current();
-        });
+          return;
+        }
+        playbackPhaseRef.current = "playing";
+        void ensurePcmPlayer().appendChunk(event.audioBase64, event.sampleRate);
+      }
+      if (event.type === "tts.done") {
+        if (playbackPhaseRef.current === "idle") {
+          useSessionStore.getState().markAssistantAudioPlaybackComplete();
+        }
+      }
+      if (event.type === "assistant.interrupted") {
+        stopAssistantSpeechRef.current();
       }
     });
     client.connect();
 
     return () => {
       stopAssistantSpeechRef.current();
+      pcmPlayerRef.current?.setOnIdle(null);
+      pcmPlayerRef.current?.dispose();
+      pcmPlayerRef.current = null;
       client.disconnect();
     };
-  }, [client]);
+  }, [client, ensurePcmPlayer]);
 
   useEffect(() => {
     if (sessionStatus === "closed" || sessionStatus === "error") {
@@ -282,8 +247,9 @@ export function useSessionLifecycle() {
     if (sessionId) {
       return;
     }
+    stopCapture();
     stopPreview();
-  }, [sessionId, stopPreview]);
+  }, [sessionId, stopCapture, stopPreview]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -323,6 +289,7 @@ export function useSessionLifecycle() {
     }
     pendingSessionStartRef.current = false;
     autoStartingCaptureRef.current = false;
+    stopCapture();
     stopAssistantSpeech();
     client.send({
       type: "session.end",
@@ -369,5 +336,6 @@ export function useSessionLifecycle() {
     closeSession,
     startCapture,
     stopCapture,
+    commitCurrentTurn,
   };
 }

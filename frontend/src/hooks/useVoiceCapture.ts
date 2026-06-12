@@ -18,7 +18,7 @@ type VoiceCaptureOptions = {
 };
 
 const SILENCE_THRESHOLD = 0.02;
-const AUTO_COMMIT_MS = 1500;
+const AUTO_COMMIT_MS = 1200;
 const TARGET_SAMPLE_RATE = 16000;
 // 8192 samples at common browser input rates lands around 170-185ms,
 // which is closer to the ASR doc recommendation of 100-200ms per chunk.
@@ -79,8 +79,8 @@ export function useVoiceCapture({
   const silenceTimerRef = useRef<number | null>(null);
   const chunkCountRef = useRef(0);
   const recordedDurationMsRef = useRef(0);
-  const stoppingRef = useRef(false);
-
+  const isTurnActiveRef = useRef(false);
+  const committingTurnRef = useRef(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const inputLevel = useSessionStore((state) => state.inputLevel);
   const recordedChunks = useSessionStore((state) => state.recordedChunks);
@@ -94,6 +94,14 @@ export function useVoiceCapture({
       silenceTimerRef.current = null;
     }
   }, []);
+
+  const resetTurnState = useCallback(() => {
+    isTurnActiveRef.current = false;
+    chunkCountRef.current = 0;
+    recordedDurationMsRef.current = 0;
+    setRecordedChunks(0);
+    setRecordingState("ready", 0);
+  }, [setRecordedChunks, setRecordingState]);
 
   const finalizeTurn = useCallback(
     async (activeSessionId: string) => {
@@ -115,12 +123,34 @@ export function useVoiceCapture({
     [captureFrameForTurn, commitTurn, inputSource, visionEnabled],
   );
 
-  const stopCapture = useCallback(() => {
-    if (stoppingRef.current) {
+  const commitCurrentTurn = useCallback(() => {
+    if (committingTurnRef.current) {
       return;
     }
-    stoppingRef.current = true;
     cleanupSilenceTimer();
+
+    const activeSessionId = sessionId;
+    if (!activeSessionId || !isTurnActiveRef.current || recordedDurationMsRef.current <= 0) {
+      resetTurnState();
+      return;
+    }
+
+    committingTurnRef.current = true;
+    isTurnActiveRef.current = false;
+    setRecordingState("recognizing", 0);
+
+    void finalizeTurn(activeSessionId).finally(() => {
+      committingTurnRef.current = false;
+      chunkCountRef.current = 0;
+      recordedDurationMsRef.current = 0;
+      setRecordedChunks(0);
+    });
+  }, [cleanupSilenceTimer, finalizeTurn, resetTurnState, sessionId, setRecordedChunks, setRecordingState]);
+
+  const stopCapture = useCallback(() => {
+    cleanupSilenceTimer();
+    isTurnActiveRef.current = false;
+    committingTurnRef.current = false;
     analyserRef.current = null;
     processorRef.current?.disconnect();
     processorRef.current = null;
@@ -128,23 +158,14 @@ export function useVoiceCapture({
     sourceNodeRef.current = null;
     muteGainRef.current?.disconnect();
     muteGainRef.current = null;
-    audioContextRef.current?.close();
+    void audioContextRef.current?.close();
     audioContextRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setIsCapturing(false);
-    setRecordingState("recognizing", 0);
-
-    const activeSessionId = sessionId;
-    if (!activeSessionId || recordedDurationMsRef.current <= 0) {
-      stoppingRef.current = false;
-      return;
-    }
-
-    void finalizeTurn(activeSessionId).finally(() => {
-      stoppingRef.current = false;
-    });
-  }, [cleanupSilenceTimer, finalizeTurn, sessionId, setRecordingState]);
+    setRecordedChunks(0);
+    setRecordingState("ready", 0);
+  }, [cleanupSilenceTimer, setRecordedChunks, setRecordingState]);
 
   const monitorVolume = useCallback(() => {
     const analyser = analyserRef.current;
@@ -166,13 +187,15 @@ export function useVoiceCapture({
       }
       const rms = Math.sqrt(sumSquares / dataArray.length);
       const normalizedLevel = Math.min(1, rms * 10);
-      setRecordingState("recording", normalizedLevel);
+      if (isTurnActiveRef.current) {
+        setRecordingState("recording", normalizedLevel);
+      }
 
       if (rms > SILENCE_THRESHOLD) {
         cleanupSilenceTimer();
-      } else if (!silenceTimerRef.current) {
+      } else if (isTurnActiveRef.current && !silenceTimerRef.current) {
         silenceTimerRef.current = window.setTimeout(() => {
-          stopCapture();
+          commitCurrentTurn();
         }, AUTO_COMMIT_MS);
       }
 
@@ -180,7 +203,7 @@ export function useVoiceCapture({
     };
 
     window.requestAnimationFrame(tick);
-  }, [cleanupSilenceTimer, setRecordingState, stopCapture]);
+  }, [cleanupSilenceTimer, commitCurrentTurn, setRecordingState]);
 
   const startCapture = useCallback(async () => {
     if (!sessionId || isCapturing) {
@@ -205,10 +228,7 @@ export function useVoiceCapture({
       });
 
       streamRef.current = stream;
-      chunkCountRef.current = 0;
-      recordedDurationMsRef.current = 0;
-      stoppingRef.current = false;
-      setRecordedChunks(0);
+      resetTurnState();
       setIsCapturing(true);
 
       const audioContext = new AudioContext();
@@ -231,7 +251,7 @@ export function useVoiceCapture({
       analyserRef.current = analyser;
 
       processor.onaudioprocess = (event) => {
-        if (!sessionId || stoppingRef.current) {
+        if (!sessionId || committingTurnRef.current) {
           return;
         }
 
@@ -242,10 +262,32 @@ export function useVoiceCapture({
         }
 
         const chunkDurationMs = Math.round((pcm16.length / TARGET_SAMPLE_RATE) * 1000);
+        let sumSquares = 0;
+        for (let index = 0; index < channelData.length; index += 1) {
+          sumSquares += channelData[index] * channelData[index];
+        }
+        const rms = Math.sqrt(sumSquares / channelData.length);
+        const storeState = useSessionStore.getState();
+        const assistantSpeaking = storeState.assistantAudioStatus === "speaking";
+        const canStartTurn = !assistantSpeaking && ["ready", "recording"].includes(storeState.sessionStatus);
+
+        if (!isTurnActiveRef.current) {
+          if (!canStartTurn) {
+            return;
+          }
+          if (rms <= SILENCE_THRESHOLD) {
+            return;
+          }
+
+          isTurnActiveRef.current = true;
+          chunkCountRef.current = 0;
+          recordedDurationMsRef.current = 0;
+          cleanupSilenceTimer();
+        }
+
         chunkCountRef.current += 1;
         recordedDurationMsRef.current += chunkDurationMs;
         setRecordedChunks(chunkCountRef.current);
-
         sendAudioChunk({
           sessionId,
           chunkId: crypto.randomUUID(),
@@ -255,7 +297,7 @@ export function useVoiceCapture({
         });
       };
 
-      setRecordingState("recording", 0.05);
+      setRecordingState("ready", 0);
       monitorVolume();
     } catch (error) {
       const message = error instanceof Error ? error.message : "未知错误";
@@ -268,6 +310,8 @@ export function useVoiceCapture({
   }, [
     isCapturing,
     monitorVolume,
+    cleanupSilenceTimer,
+    resetTurnState,
     sendAudioChunk,
     sessionId,
     setRecordedChunks,
@@ -291,5 +335,6 @@ export function useVoiceCapture({
     isCapturing,
     startCapture,
     stopCapture,
+    commitCurrentTurn,
   };
 }

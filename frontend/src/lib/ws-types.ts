@@ -37,6 +37,16 @@ export type ClientEvent =
   | {
       type: "session.end";
       sessionId: string;
+    }
+  | {
+      type: "assistant.interrupt";
+      sessionId: string;
+      reason?: string;
+    }
+  | {
+      type: "asr.partial.request";
+      sessionId: string;
+      requestId: string;
     };
 
 export type ServerEvent =
@@ -56,6 +66,16 @@ export type ServerEvent =
       sessionId: string;
       level: "info" | "warning" | "error";
       message: string;
+    }
+  | {
+      type: "asr.partial";
+      sessionId: string;
+      requestId?: string;
+      transcript: string;
+      provider: string;
+      durationMs: number;
+      chunkCount: number;
+      verdict: "echo" | "candidate" | "confirmed";
     }
   | {
       type: "asr.result";
@@ -113,6 +133,35 @@ export type ServerEvent =
       sessionId: string;
       turnId: string;
       fullText: string;
+    }
+  | {
+      type: "tts.start";
+      sessionId: string;
+      turnId: string;
+      provider: string;
+      mimeType: string;
+      sampleRate: number;
+    }
+  | {
+      type: "tts.chunk";
+      sessionId: string;
+      turnId: string;
+      chunkSequence: number;
+      audioBase64: string;
+      mimeType: string;
+      sampleRate: number;
+      provider: string;
+    }
+  | {
+      type: "tts.done";
+      sessionId: string;
+      turnId: string;
+    }
+  | {
+      type: "assistant.interrupted";
+      sessionId: string;
+      turnId: string;
+      reason: string;
     }
   | {
       type: "error";

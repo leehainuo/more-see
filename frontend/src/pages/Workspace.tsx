@@ -95,7 +95,7 @@ export default function Workspace() {
     requestSessionStart,
     closeSession,
     startCapture,
-    stopCapture,
+    commitCurrentTurn,
   } = useSessionLifecycle();
 
   const displayMessages = useMemo(
@@ -147,13 +147,18 @@ export default function Workspace() {
   };
 
   const handleCaptureToggle = async () => {
-    if (isCapturing) {
+    if (sessionStatus === "recording") {
       setIsCapturePending(false);
-      stopCapture();
+      commitCurrentTurn();
       return;
     }
 
-    if (sessionStatus === "recognizing" || sessionStatus === "transcribing" || isCapturePending) {
+    if (
+      sessionStatus === "recognizing" ||
+      sessionStatus === "transcribing" ||
+      sessionStatus === "streaming" ||
+      isCapturePending
+    ) {
       return;
     }
 
@@ -174,7 +179,7 @@ export default function Workspace() {
     sessionStatus !== "error" &&
     sessionStatus !== "idle" &&
     sessionStatus !== "closed";
-  const isRecordButtonExpanded = isCapturing || isCaptureBooting;
+  const isRecordButtonExpanded = sessionStatus === "recording" || isCaptureBooting;
   const isScreenMode = inputSource === "screen";
   const sourceSwitchDisabled =
     isCapturing || sessionStatus === "recognizing" || sessionStatus === "transcribing";
@@ -339,7 +344,15 @@ export default function Workspace() {
                   "flex h-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black text-white transition-all duration-300 ease-[cubic-bezier(0.22,0.9,0.22,1)] disabled:cursor-not-allowed disabled:bg-zinc-400",
                   isRecordButtonExpanded ? "w-[124px] px-4 shadow-[0_14px_32px_rgba(0,0,0,0.22)]" : "w-11 px-0 shadow-[0_10px_24px_rgba(0,0,0,0.18)]",
                 )}
-                aria-label={isCapturing ? "结束录音" : isCaptureBooting ? "正在启动录音" : "开始录音"}
+                aria-label={
+                  sessionStatus === "recording"
+                    ? "结束本轮发言"
+                    : isCaptureBooting
+                      ? "正在启动持续收音"
+                      : sessionId
+                        ? "持续监听中"
+                        : "开始通话"
+                }
               >
                 {isRecordButtonExpanded ? (
                   <div
