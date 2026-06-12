@@ -6,6 +6,7 @@ type ConnectionStatus = "idle" | "connecting" | "connected" | "closed";
 type SessionStatus = "idle" | "ready" | "recording" | "recognizing" | "transcribing" | "streaming" | "closed" | "error";
 type VisionStatus = "idle" | "preview" | "capturing" | "summarizing" | "ready" | "error";
 type InputSource = "camera" | "screen";
+type TtsStatus = "idle" | "speaking";
 type Keyframe = {
   id: string;
   dataUrl: string;
@@ -29,6 +30,10 @@ type SessionState = {
   visionEnabled: boolean;
   visionStatus: VisionStatus;
   visionSummary: string;
+  ttsEnabled: boolean;
+  ttsStatus: TtsStatus;
+  activeSpeechMessageId: string | null;
+  activeSpeechSegmentIndex: number | null;
   keyframes: Keyframe[];
   setConnectionStatus: (status: ConnectionStatus) => void;
   setRecordingState: (status: "recording" | "recognizing" | "transcribing" | "ready", level?: number) => void;
@@ -36,6 +41,10 @@ type SessionState = {
   setInputSource: (source: InputSource) => void;
   setVisionEnabled: (enabled: boolean) => void;
   setVisionStatus: (status: VisionStatus, systemMessage?: string) => void;
+  setTtsEnabled: (enabled: boolean) => void;
+  startSpeechPlayback: (messageId: string) => void;
+  updateSpeechPlayback: (messageId: string, segmentIndex: number) => void;
+  stopSpeechPlayback: (systemMessage?: string) => void;
   addLocalKeyframe: (frame: Keyframe) => void;
   resetMessages: () => void;
   appendUserMessage: (content: string) => void;
@@ -56,6 +65,10 @@ export const useSessionStore = create<SessionState>((set) => ({
   visionEnabled: true,
   visionStatus: "idle",
   visionSummary: "",
+  ttsEnabled: true,
+  ttsStatus: "idle",
+  activeSpeechMessageId: null,
+  activeSpeechSegmentIndex: null,
   keyframes: [],
 
   setConnectionStatus: (status) => {
@@ -119,6 +132,43 @@ export const useSessionStore = create<SessionState>((set) => ({
     }));
   },
 
+  setTtsEnabled: (enabled) => {
+    set((state) => ({
+      ttsEnabled: enabled,
+      ttsStatus: enabled ? state.ttsStatus : "idle",
+      activeSpeechMessageId: enabled ? state.activeSpeechMessageId : null,
+      activeSpeechSegmentIndex: enabled ? state.activeSpeechSegmentIndex : null,
+      systemMessage: enabled ? "AI 语音播报已开启。" : "AI 语音播报已关闭。",
+    }));
+  },
+
+  startSpeechPlayback: (messageId) => {
+    set({
+      ttsStatus: "speaking",
+      activeSpeechMessageId: messageId,
+      activeSpeechSegmentIndex: 0,
+      systemMessage: "AI 正在播报当前回复。",
+    });
+  },
+
+  updateSpeechPlayback: (messageId, segmentIndex) => {
+    set((state) => ({
+      ttsStatus: "speaking",
+      activeSpeechMessageId: messageId,
+      activeSpeechSegmentIndex: segmentIndex,
+      systemMessage: state.systemMessage,
+    }));
+  },
+
+  stopSpeechPlayback: (systemMessage) => {
+    set((state) => ({
+      ttsStatus: "idle",
+      activeSpeechMessageId: null,
+      activeSpeechSegmentIndex: null,
+      systemMessage: systemMessage ?? state.systemMessage,
+    }));
+  },
+
   addLocalKeyframe: (frame) => {
     set((state) => ({
       visionStatus: "capturing",
@@ -137,6 +187,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       recordedChunks: 0,
       visionStatus: "idle",
       visionSummary: "",
+      ttsStatus: "idle",
+      activeSpeechMessageId: null,
+      activeSpeechSegmentIndex: null,
       keyframes: [],
     });
   },
@@ -292,6 +345,9 @@ export const useSessionStore = create<SessionState>((set) => ({
             recordedChunks: 0,
             visionStatus: state.visionEnabled ? "preview" : "idle",
             visionSummary: "",
+            ttsStatus: "idle",
+            activeSpeechMessageId: null,
+            activeSpeechSegmentIndex: null,
             keyframes: [],
             systemMessage: "会话已关闭，可以重新开始。",
           };
@@ -299,6 +355,9 @@ export const useSessionStore = create<SessionState>((set) => ({
         case "error":
           return {
             sessionStatus: "error",
+            ttsStatus: "idle",
+            activeSpeechMessageId: null,
+            activeSpeechSegmentIndex: null,
             systemMessage: `${event.code}: ${event.message}`,
           };
 

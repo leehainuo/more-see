@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AudioLines, Camera, Monitor } from "lucide-react";
+import { AudioLines, Camera, Monitor, Square, Volume2, VolumeX } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
+import { splitIntoSpeechSegments } from "@/lib/tts";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -14,12 +15,25 @@ type DisplayMessage = {
   pending?: "user-transcribing" | "assistant-thinking";
 };
 
-function ConversationBubble({ message }: { message: DisplayMessage }) {
+function ConversationBubble({
+  message,
+  activeSpeechSegmentIndex,
+}: {
+  message: DisplayMessage;
+  activeSpeechSegmentIndex?: number | null;
+}) {
   const [entered, setEntered] = useState(false);
   const isUser = message.role === "user";
   const isPendingUser = message.pending === "user-transcribing";
   const isPendingAssistant = message.pending === "assistant-thinking";
   const isPending = Boolean(message.pending);
+  const speechSegments = useMemo(() => splitIntoSpeechSegments(message.content), [message.content]);
+  const shouldHighlightSpeech =
+    message.role === "assistant" &&
+    !message.streaming &&
+    activeSpeechSegmentIndex !== null &&
+    activeSpeechSegmentIndex !== undefined &&
+    speechSegments.length > 0;
 
   useEffect(() => {
     const animationFrame = requestAnimationFrame(() => setEntered(true));
@@ -59,7 +73,21 @@ function ConversationBubble({ message }: { message: DisplayMessage }) {
 
         {!isPendingUser ? (
           <p className={cn("text-sm leading-7", isUser ? "text-white" : "text-zinc-800")}>
-            {message.content}
+            {shouldHighlightSpeech
+              ? speechSegments.map((segment, index) => (
+                  <span
+                    key={`${message.id}-${segment}-${index}`}
+                    className={cn(
+                      "transition-colors duration-200",
+                      index === activeSpeechSegmentIndex &&
+                        "rounded bg-black px-1 py-0.5 text-white shadow-[0_6px_18px_rgba(0,0,0,0.18)]",
+                      index < activeSpeechSegmentIndex && "text-zinc-500",
+                    )}
+                  >
+                    {segment}
+                  </span>
+                ))
+              : message.content}
           </p>
         ) : null}
 
@@ -78,6 +106,13 @@ export default function Workspace() {
   const messages = useSessionStore((state) => state.messages);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const setVisionEnabled = useSessionStore((state) => state.setVisionEnabled);
+  const ttsEnabled = useSessionStore((state) => state.ttsEnabled);
+  const setTtsEnabled = useSessionStore((state) => state.setTtsEnabled);
+  const ttsStatus = useSessionStore((state) => state.ttsStatus);
+  const activeSpeechMessageId = useSessionStore((state) => state.activeSpeechMessageId);
+  const activeSpeechSegmentIndex = useSessionStore((state) => state.activeSpeechSegmentIndex);
+  const systemMessage = useSessionStore((state) => state.systemMessage);
+  const visionStatus = useSessionStore((state) => state.visionStatus);
   const [isCapturePending, setIsCapturePending] = useState(false);
   const {
     connectionStatus,
@@ -91,6 +126,7 @@ export default function Workspace() {
     bindMainVideoElement,
     bindPipVideoElement,
     setInputSource,
+    stopAssistantSpeech,
     reconnect,
     startSession,
     closeSession,
@@ -179,6 +215,7 @@ export default function Workspace() {
   const isScreenMode = inputSource === "screen";
   const sourceSwitchDisabled =
     isCapturing || sessionStatus === "recognizing" || sessionStatus === "transcribing";
+  const isSpeaking = ttsStatus === "speaking";
 
   const handleSourceChange = (nextSource: "camera" | "screen") => {
     if (sourceSwitchDisabled || inputSource === nextSource) {
@@ -260,7 +297,13 @@ export default function Workspace() {
             <div className="flex-1 px-4 py-5 sm:px-6">
               <div className="mx-auto flex w-full max-w-3xl flex-col space-y-6">
                 {renderedMessages.map((message) => (
-                  <ConversationBubble key={message.id} message={message} />
+                  <ConversationBubble
+                    key={message.id}
+                    message={message}
+                    activeSpeechSegmentIndex={
+                      message.id === activeSpeechMessageId ? activeSpeechSegmentIndex : null
+                    }
+                  />
                 ))}
               </div>
             </div>
@@ -279,6 +322,10 @@ export default function Workspace() {
                       ? "正在结合你的屏幕与语音理解问题"
                       : "可以继续说话，我会结合当前画面回复"
                     : "有问题，尽管问"}
+                </p>
+                <p className="mt-1 truncate text-xs text-zinc-400">
+                  {systemMessage}
+                  {sessionId ? ` · 视觉 ${visionStatus}` : ""}
                 </p>
               </div>
 
@@ -306,6 +353,37 @@ export default function Workspace() {
                 >
                   <Monitor className="size-4" />
                   屏幕
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1 rounded-full border border-black/10 bg-zinc-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextEnabled = !ttsEnabled;
+                    setTtsEnabled(nextEnabled);
+                    if (!nextEnabled) {
+                      stopAssistantSpeech("AI 语音播报已关闭。");
+                    }
+                  }}
+                  className={cn(
+                    "flex h-9 items-center gap-2 rounded-full px-3 text-sm transition-colors",
+                    ttsEnabled ? "bg-black text-white" : "text-zinc-600 hover:bg-black/5",
+                  )}
+                  aria-label={ttsEnabled ? "关闭 AI 语音播报" : "开启 AI 语音播报"}
+                >
+                  {ttsEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+                  朗读
+                </button>
+                <button
+                  type="button"
+                  onClick={() => stopAssistantSpeech("已手动停止当前语音播报。")}
+                  disabled={!isSpeaking}
+                  className="flex h-9 items-center gap-2 rounded-full px-3 text-sm text-zinc-600 transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:text-zinc-300"
+                  aria-label="停止当前语音播报"
+                >
+                  <Square className="size-3.5" />
+                  停止
                 </button>
               </div>
 

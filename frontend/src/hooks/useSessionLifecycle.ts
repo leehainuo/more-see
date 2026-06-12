@@ -2,17 +2,11 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useVisualCapture } from "@/hooks/useVisualCapture";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
+import { splitIntoSpeechSegments } from "@/lib/tts";
 import { SessionWebSocketClient } from "@/lib/ws-client";
 import { useSessionStore } from "@/store/useSessionStore";
 
 type InputSource = "camera" | "screen";
-
-function splitIntoSpeechSegments(text: string) {
-  return text
-    .split(/(?<=[。！？!?；;：:\n])/u)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-}
 
 export function useSessionLifecycle() {
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
@@ -21,12 +15,27 @@ export function useSessionLifecycle() {
   const inputSource = useSessionStore((state) => state.inputSource);
   const setInputSource = useSessionStore((state) => state.setInputSource);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
+  const ttsEnabled = useSessionStore((state) => state.ttsEnabled);
   const appendUserMessage = useSessionStore((state) => state.appendUserMessage);
 
   const client = useMemo(() => new SessionWebSocketClient(), []);
   const speechTokenRef = useRef(0);
+  const stopSpeechPlayback = useMemo(() => useSessionStore.getState().stopSpeechPlayback, []);
+  const startSpeechPlayback = useMemo(() => useSessionStore.getState().startSpeechPlayback, []);
+  const updateSpeechPlayback = useMemo(() => useSessionStore.getState().updateSpeechPlayback, []);
 
-  const speakAssistantText = useCallback(async (text: string) => {
+  const stopAssistantSpeech = useCallback(
+    (systemMessage?: string) => {
+      speechTokenRef.current += 1;
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      stopSpeechPlayback(systemMessage);
+    },
+    [stopSpeechPlayback],
+  );
+
+  const speakAssistantText = useCallback(async (messageId: string, text: string) => {
     const cleanedText = text.trim();
     if (!cleanedText) {
       return;
@@ -37,14 +46,19 @@ export function useSessionLifecycle() {
     }
 
     const segments = splitIntoSpeechSegments(cleanedText);
+    if (!segments.length) {
+      return;
+    }
     const token = speechTokenRef.current + 1;
     speechTokenRef.current = token;
     window.speechSynthesis.cancel();
+    startSpeechPlayback(messageId);
 
-    for (const segment of segments) {
+    for (const [segmentIndex, segment] of segments.entries()) {
       if (speechTokenRef.current !== token) {
         break;
       }
+      updateSpeechPlayback(messageId, segmentIndex);
 
       await new Promise<void>((resolve, reject) => {
         const utterance = new SpeechSynthesisUtterance(segment);
@@ -56,7 +70,10 @@ export function useSessionLifecycle() {
         window.speechSynthesis.speak(utterance);
       });
     }
-  }, []);
+    if (speechTokenRef.current === token) {
+      stopSpeechPlayback("AI 语音播报已完成。");
+    }
+  }, [startSpeechPlayback, stopSpeechPlayback, updateSpeechPlayback]);
 
   useEffect(() => {
     client.onStatusChange((status) => {
@@ -64,23 +81,43 @@ export function useSessionLifecycle() {
     });
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
-      if (event.type === "llm.done") {
-        void speakAssistantText(event.fullText).catch((error: unknown) => {
+      if (event.type === "llm.done" && useSessionStore.getState().ttsEnabled) {
+        const latestAssistantMessage = [...useSessionStore.getState().messages]
+          .reverse()
+          .find((message) => message.role === "assistant");
+
+        if (!latestAssistantMessage) {
+          return;
+        }
+
+        void speakAssistantText(latestAssistantMessage.id, event.fullText).catch((error: unknown) => {
           const message = error instanceof Error ? error.message : "未知错误";
           useSessionStore.setState({
             systemMessage: `AI 文本已返回，但语音播报失败：${message}`,
           });
+          stopSpeechPlayback();
         });
       }
     });
     client.connect();
 
     return () => {
-      speechTokenRef.current += 1;
-      window.speechSynthesis?.cancel();
+      stopAssistantSpeech();
       client.disconnect();
     };
-  }, [client, speakAssistantText]);
+  }, [client, speakAssistantText, stopAssistantSpeech, stopSpeechPlayback]);
+
+  useEffect(() => {
+    if (!ttsEnabled) {
+      stopAssistantSpeech("AI 语音播报已关闭。");
+    }
+  }, [stopAssistantSpeech, ttsEnabled]);
+
+  useEffect(() => {
+    if (sessionStatus === "closed" || sessionStatus === "error") {
+      stopAssistantSpeech();
+    }
+  }, [sessionStatus, stopAssistantSpeech]);
 
   useEffect(() => {
     if (connectionStatus !== "connected" || !sessionId) {
@@ -203,6 +240,7 @@ export function useSessionLifecycle() {
     if (!sessionId) {
       return;
     }
+    stopAssistantSpeech("已停止当前语音播报。");
     client.send({
       type: "session.end",
       sessionId,
@@ -227,7 +265,9 @@ export function useSessionLifecycle() {
     bindMainVideoElement,
     bindPipVideoElement,
     visionEnabled,
+    ttsEnabled,
     setInputSource,
+    stopAssistantSpeech,
     reconnect,
     startSession,
     closeSession,
