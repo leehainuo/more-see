@@ -164,14 +164,16 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   markAssistantAudioPlaybackComplete: () => {
     set((state) => ({
-      sessionStatus: state.sessionStatus === "closed" || state.sessionStatus === "error" ? state.sessionStatus : "ready",
+      sessionStatus: state.sessionStatus === "streaming" ? "ready" : state.sessionStatus,
       assistantAudioStatus: "idle",
       systemMessage:
         state.sessionStatus === "closed"
           ? state.systemMessage
           : state.sessionStatus === "error"
             ? state.systemMessage
-            : "AI 语音播报完成，通话保持持续监听。",
+          : state.sessionStatus === "streaming"
+            ? "AI 语音播报完成，通话保持持续监听。"
+            : state.systemMessage,
     }));
   },
 
