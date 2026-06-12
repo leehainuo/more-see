@@ -89,7 +89,8 @@ async def _probe_speech_ws(url: str, *, resource_id: str) -> tuple[bool, str]:
 
 
 async def _probe_asr() -> tuple[bool, str]:
-    return await _probe_speech_ws(settings.volcengine_asr_ws_url, resource_id=settings.volcengine_asr_resource_id)
+    url = settings.volcengine_asr_stream_ws_url if settings.volcengine_asr_streaming_enabled else settings.volcengine_asr_ws_url
+    return await _probe_speech_ws(url, resource_id=settings.volcengine_asr_resource_id)
 
 
 async def _probe_tts() -> tuple[bool, str]:

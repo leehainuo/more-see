@@ -353,7 +353,7 @@ class VolcengineAsrStreamSession:
         if self._ws is not None:
             return
         self._ws = await websockets.connect(
-            settings.volcengine_asr_ws_url,
+            settings.volcengine_asr_stream_ws_url,
             additional_headers=self._headers,
             max_size=10_000_000,
             ssl=build_volcengine_ssl_context(),
