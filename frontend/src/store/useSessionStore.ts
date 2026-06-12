@@ -43,12 +43,12 @@ const initialMessages: ChatMessage[] = [
   {
     id: "initial-assistant",
     role: "assistant",
-    content: "当前工作台默认走火山多模态链路，语音、视觉、文本与语音合成都已统一到火山体系。",
+    content: "你好，我是 More See。你可以打开会话、说一句话，我会结合当前画面给出回答，并在完成后自动播报。",
   },
   {
     id: "initial-user",
     role: "user",
-    content: "点击“开始会话”并完成一轮录音后，页面会依次展示火山 ASR transcript、视觉摘要和流式 AI 回复。",
+    content: "我想体验一次更完整、更自然的多模态对话。",
   },
 ];
 

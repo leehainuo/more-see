@@ -173,7 +173,7 @@ export function useSessionLifecycle() {
     if (visionEnabled) {
       await startPreview();
     }
-    appendUserMessage("开始一次火山多模态会话，准备上传 PCM 语音、抓取关键帧，并等待流式 AI 回复。");
+    appendUserMessage("准备开始新一轮多模态对话，请说出你的问题，我会结合当前画面一起理解。");
     client.send({
       type: "session.start",
       inputSource,
