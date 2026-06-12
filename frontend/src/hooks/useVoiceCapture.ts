@@ -20,7 +20,9 @@ type VoiceCaptureOptions = {
 const SILENCE_THRESHOLD = 0.02;
 const AUTO_COMMIT_MS = 1500;
 const TARGET_SAMPLE_RATE = 16000;
-const PROCESSOR_BUFFER_SIZE = 4096;
+// 8192 samples at common browser input rates lands around 170-185ms,
+// which is closer to the ASR doc recommendation of 100-200ms per chunk.
+const PROCESSOR_BUFFER_SIZE = 8192;
 
 function arrayBufferToBase64(arrayBuffer: ArrayBufferLike) {
   const bytes = new Uint8Array(arrayBuffer);
