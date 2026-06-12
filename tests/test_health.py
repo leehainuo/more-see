@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 import app.api.http as http_api
 from app.services.provider_health_service import _probe_speech_ws
+from app.utils import volcengine_speech as speech_utils
 from app.main import app
 from app.config import settings
 
@@ -70,8 +71,10 @@ async def test_probe_speech_ws_closes_connection(monkeypatch: pytest.MonkeyPatch
             self.close_code = 1000
 
     fake_websocket = FakeWebSocket()
+    captured: dict[str, object] = {}
 
-    async def fake_connect(*args, **kwargs):
+    async def fake_connect(*_args, **kwargs):
+        captured.update(kwargs)
         return fake_websocket
 
     monkeypatch.setattr("app.services.provider_health_service.websockets.connect", fake_connect)
@@ -81,6 +84,36 @@ async def test_probe_speech_ws_closes_connection(monkeypatch: pytest.MonkeyPatch
     assert ok is True
     assert message == "语音 WebSocket 握手成功"
     assert fake_websocket.close_calls == 1
+    assert captured["additional_headers"]["X-Api-Key"] == "speech-key"
+    assert captured["additional_headers"]["X-Api-Resource-Id"] == "seed-test"
+    assert captured["additional_headers"]["X-Api-Connect-Id"]
+
+
+def test_explain_speech_ws_error_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeInvalidStatus(Exception):
+        def __init__(self) -> None:
+            self.response = type(
+                "Response",
+                (),
+                {
+                    "status_code": 403,
+                    "headers": {
+                        "X-Tt-Logid": "logid-123",
+                    },
+                },
+            )()
+
+    monkeypatch.setattr(speech_utils.websockets, "InvalidStatus", FakeInvalidStatus)
+
+    message = speech_utils.explain_speech_ws_error(
+        exc=FakeInvalidStatus(),
+        service_name="ASR",
+        resource_id="volc.seedasr.sauc.duration",
+    )
+
+    assert "HTTP 403" in message
+    assert "X-Tt-Logid=logid-123" in message
+    assert "volc.seedasr.sauc.duration" in message
 
 
 def test_public_config() -> None:

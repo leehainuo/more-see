@@ -10,11 +10,12 @@ from langchain_core.messages import HumanMessage
 from app.adapters.langchain_ark import build_chat_model, extract_text_content
 from app.config import settings
 from app.utils.ssl_context import build_volcengine_ssl_context
+from app.utils.volcengine_speech import build_speech_ws_headers, explain_speech_ws_error
 
 logger = logging.getLogger(__name__)
 
-_ONE_PIXEL_PNG_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sX8w8sAAAAASUVORK5CYII="
+_PROBE_IMAGE_BASE64 = (
+    "R0lGODdhEAAQAIABAAAAAP///ywAAAAAEAAQAAACF4yPqcvtD6OctNqLs968+w+G4kiW5omm6sq27gvH8kzXAgA7"
 )
 _ASR_WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
 _TTS_WS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
@@ -52,7 +53,7 @@ async def _probe_vision() -> tuple[bool, str]:
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/png;base64,{_ONE_PIXEL_PNG_BASE64}",
+                                "url": f"data:image/gif;base64,{_PROBE_IMAGE_BASE64}",
                                 "detail": "low",
                             },
                         },
@@ -67,14 +68,14 @@ async def _probe_vision() -> tuple[bool, str]:
 
 
 async def _probe_speech_ws(url: str, *, resource_id: str) -> tuple[bool, str]:
+    connect_id = str(uuid4())
     websocket = await asyncio.wait_for(
         websockets.connect(
             url,
-            additional_headers={
-                "X-Api-Key": settings.volcengine_speech_api_key,
-                "X-Api-Resource-Id": resource_id,
-                "X-Api-Connect-Id": str(uuid4()),
-            },
+            additional_headers=build_speech_ws_headers(
+                resource_id=resource_id,
+                connect_id=connect_id,
+            ),
             max_size=2 * 1024 * 1024,
             ssl=build_volcengine_ssl_context(),
         ),
@@ -153,8 +154,19 @@ async def get_provider_health(*, probe: bool = False) -> dict[str, object]:
             item["message"] = message
         except Exception as exc:
             item["status"] = "error"
-            item["message"] = f"{type(exc).__name__}: {exc}"
-            logger.warning("provider probe failed for %s: %s", name, exc)
+            if name in {"asr", "tts"}:
+                item["message"] = explain_speech_ws_error(
+                    exc=exc,
+                    service_name=name.upper(),
+                    resource_id=(
+                        settings.volcengine_asr_resource_id
+                        if name == "asr"
+                        else settings.volcengine_tts_resource_id
+                    ),
+                )
+            else:
+                item["message"] = f"{type(exc).__name__}: {exc}"
+            logger.warning("provider probe failed for %s: %s", name, item["message"])
 
     result["summary"]["readyCount"] = sum(
         1 for item in result["providers"].values() if item["status"] == "ready"
