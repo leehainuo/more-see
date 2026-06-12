@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     volcengine_tts_speaker: str = "zh_female_shuangkuaisisi_moon_bigtts"
     volcengine_tts_format: str = "mp3"
     volcengine_tts_sample_rate: int = 24000
+    ark_api_key: str = ""
+    ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    ark_llm_model: str = "doubao-seed-1-6-251015"
+    ark_vision_model: str = "doubao-seed-1-6-vision-250815"
 
     model_config = SettingsConfigDict(
         env_file=".env",
