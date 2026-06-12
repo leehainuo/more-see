@@ -5,11 +5,13 @@ import type { ChatMessage, ServerEvent } from "@/lib/ws-types";
 type ConnectionStatus = "idle" | "connecting" | "connected" | "closed";
 type SessionStatus = "idle" | "ready" | "recording" | "recognizing" | "transcribing" | "streaming" | "closed" | "error";
 type VisionStatus = "idle" | "preview" | "capturing" | "summarizing" | "ready" | "error";
+type InputSource = "camera" | "screen";
+type AssistantAudioStatus = "idle" | "speaking";
 type Keyframe = {
   id: string;
   dataUrl: string;
   capturedAt: string;
-  inputSource: "camera" | "screen";
+  inputSource: InputSource;
   width: number;
   height: number;
   summary?: string;
@@ -24,18 +26,22 @@ type SessionState = {
   inputLevel: number;
   recordedChunks: number;
   messages: ChatMessage[];
+  inputSource: InputSource;
   visionEnabled: boolean;
   visionStatus: VisionStatus;
   visionSummary: string;
+  assistantAudioStatus: AssistantAudioStatus;
   keyframes: Keyframe[];
   setConnectionStatus: (status: ConnectionStatus) => void;
   setRecordingState: (status: "recording" | "recognizing" | "transcribing" | "ready", level?: number) => void;
   setRecordedChunks: (count: number) => void;
+  setInputSource: (source: InputSource) => void;
   setVisionEnabled: (enabled: boolean) => void;
   setVisionStatus: (status: VisionStatus, systemMessage?: string) => void;
   addLocalKeyframe: (frame: Keyframe) => void;
   resetMessages: () => void;
   appendUserMessage: (content: string) => void;
+  markAssistantAudioPlaybackComplete: () => void;
   handleServerEvent: (event: ServerEvent) => void;
 };
 
@@ -49,9 +55,11 @@ export const useSessionStore = create<SessionState>((set) => ({
   inputLevel: 0,
   recordedChunks: 0,
   messages: initialMessages,
+  inputSource: "camera",
   visionEnabled: true,
   visionStatus: "idle",
   visionSummary: "",
+  assistantAudioStatus: "idle",
   keyframes: [],
 
   setConnectionStatus: (status) => {
@@ -74,12 +82,14 @@ export const useSessionStore = create<SessionState>((set) => ({
       inputLevel: level,
       systemMessage:
         status === "recording"
-          ? "正在监听你的语音输入，静音 1.5 秒后自动提交。"
+          ? "正在听你说话，停顿 1.2 秒后会自动提交这一轮。"
           : status === "recognizing"
             ? "语音已提交，正在等待 ASR 识别结果。"
           : status === "transcribing"
             ? "语音识别完成，正在等待 AI 回复。"
-            : state.systemMessage,
+            : status === "ready"
+              ? "通话已接通，正在持续监听，你可以直接开口。"
+              : state.systemMessage,
     }));
   },
 
@@ -87,6 +97,17 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({
       recordedChunks: count,
     });
+  },
+
+  setInputSource: (inputSource) => {
+    set((state) => ({
+      inputSource,
+      visionStatus: state.visionEnabled ? "preview" : "idle",
+      systemMessage:
+        inputSource === "screen"
+          ? "已切换到屏幕共享模式，主画面会使用屏幕，摄像头保留为小窗。"
+          : "已切换到摄像头模式，当前主画面将直接使用自拍画面。",
+    }));
   },
 
   setVisionEnabled: (enabled) => {
@@ -122,6 +143,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       recordedChunks: 0,
       visionStatus: "idle",
       visionSummary: "",
+      assistantAudioStatus: "idle",
       keyframes: [],
     });
   },
@@ -139,6 +161,19 @@ export const useSessionStore = create<SessionState>((set) => ({
     }));
   },
 
+  markAssistantAudioPlaybackComplete: () => {
+    set((state) => ({
+      sessionStatus: state.sessionStatus === "closed" || state.sessionStatus === "error" ? state.sessionStatus : "ready",
+      assistantAudioStatus: "idle",
+      systemMessage:
+        state.sessionStatus === "closed"
+          ? state.systemMessage
+          : state.sessionStatus === "error"
+            ? state.systemMessage
+            : "AI 语音播报完成，通话保持持续监听。",
+    }));
+  },
+
   handleServerEvent: (event) => {
     set((state) => {
       switch (event.type) {
@@ -151,8 +186,9 @@ export const useSessionStore = create<SessionState>((set) => ({
           return {
             sessionId: event.sessionId,
             sessionStatus: "ready",
+            inputSource: event.inputSource,
             visionStatus: state.visionEnabled ? "preview" : "idle",
-            systemMessage: `会话 ${event.sessionId.slice(0, 8)} 已创建，可持续接收事件。`,
+            systemMessage: `会话 ${event.sessionId.slice(0, 8)} 已接通，正在持续监听。`,
           };
 
         case "session.status":
@@ -166,7 +202,7 @@ export const useSessionStore = create<SessionState>((set) => ({
               sessionStatus: "ready",
               recordedChunks: 0,
               inputLevel: 0,
-              systemMessage: "本轮语音识别未成功，已跳过 AI 回复。请重试录音，或直接输入文字。",
+              systemMessage: "本轮语音识别未成功，已跳过 AI 回复。通话保持连接，你可以继续说话。",
             };
           }
           return {
@@ -250,7 +286,7 @@ export const useSessionStore = create<SessionState>((set) => ({
           const lastMessage = state.messages[state.messages.length - 1];
           if (lastMessage?.role === "assistant") {
             return {
-              sessionStatus: "ready",
+              sessionStatus: state.assistantAudioStatus === "speaking" ? "streaming" : "ready",
               messages: [
                 ...state.messages.slice(0, -1),
                 {
@@ -259,14 +295,40 @@ export const useSessionStore = create<SessionState>((set) => ({
                   streaming: false,
                 },
               ],
-              systemMessage: "AI 已完成本轮多模态回复，可以继续下一轮提问。",
+              systemMessage:
+                state.assistantAudioStatus === "speaking"
+                  ? "AI 文字回复已完成，语音仍在播报中，请等待播报结束。"
+                  : "AI 已完成本轮多模态回复，通话仍在持续监听中。",
             };
           }
           return {
-            sessionStatus: "ready",
-            systemMessage: "AI 已完成本轮多模态回复，可以继续下一轮提问。",
+            sessionStatus: state.assistantAudioStatus === "speaking" ? "streaming" : "ready",
+            systemMessage:
+              state.assistantAudioStatus === "speaking"
+                ? "AI 文字回复已完成，语音仍在播报中，请等待播报结束。"
+                : "AI 已完成本轮多模态回复，通话仍在持续监听中。",
           };
         }
+
+        case "tts.start":
+          return {
+            assistantAudioStatus: "speaking",
+            systemMessage: "AI 正在播报语音，播报结束后会继续监听你的下一轮发言。",
+          };
+
+        case "tts.done":
+          return {
+            sessionStatus: "streaming",
+            assistantAudioStatus: "speaking",
+            systemMessage: "AI 语音数据已发送完成，正在播放剩余音频。",
+          };
+
+        case "assistant.interrupted":
+          return {
+            assistantAudioStatus: "idle",
+            sessionStatus: state.sessionStatus === "streaming" ? "ready" : state.sessionStatus,
+            systemMessage: "当前 AI 播报已结束，系统会继续监听你的下一轮发言。",
+          };
 
         case "session.closed":
           return {
@@ -276,6 +338,7 @@ export const useSessionStore = create<SessionState>((set) => ({
             recordedChunks: 0,
             visionStatus: state.visionEnabled ? "preview" : "idle",
             visionSummary: "",
+            assistantAudioStatus: "idle",
             keyframes: [],
             systemMessage: "会话已关闭，可以重新开始。",
           };

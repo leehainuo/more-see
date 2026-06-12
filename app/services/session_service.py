@@ -41,7 +41,7 @@ class SessionService:
                 "type": "session.status",
                 "sessionId": session.session_id,
                 "level": "info",
-                "message": "会话已开始，请对着麦克风说话，静音 1.5 秒后将自动提交识别。",
+                "message": "会话已开始，系统会持续监听，停顿约 1.2 秒后自动提交当前发言。",
             }
         )
         return session.session_id

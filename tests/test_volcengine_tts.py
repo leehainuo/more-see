@@ -3,6 +3,7 @@ import ssl
 
 import pytest
 
+from app.adapters.tts_adapter import tts_adapter
 from app.adapters import volcengine_tts_ws
 from app.config import settings
 
@@ -143,11 +144,62 @@ async def test_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_stream_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "volcengine_speech_api_key", "speech-key")
+    session_id = "session-stream"
+    connect_id = "connect-stream"
+    fake_socket = FakeWebSocket(
+        [
+            _server_frame(event_type=50, payload=b"{}", connect_id=connect_id),
+            _server_frame(event_type=150, payload=b"{}", session_id=session_id),
+            _server_frame(msg_type=0xB, event_type=352, payload=b"audio-a", session_id=session_id),
+            _server_frame(msg_type=0xB, event_type=352, payload=b"audio-b", session_id=session_id),
+            _server_frame(event_type=152, payload=b"{}", session_id=session_id),
+            _server_frame(event_type=52, payload=b"{}", connect_id=connect_id),
+        ]
+    )
+
+    monkeypatch.setattr(volcengine_tts_ws.websockets, "connect", lambda *_args, **_kwargs: fake_socket)
+    uuid_iter = iter([connect_id, session_id])
+    monkeypatch.setattr(volcengine_tts_ws, "uuid4", lambda: next(uuid_iter))
+
+    chunks = []
+    async for chunk in volcengine_tts_ws.stream_synthesize_via_websocket("你好"):
+        chunks.append(chunk)
+
+    assert chunks == [b"audio-a", b"audio-b"]
+
+
+@pytest.mark.asyncio
 async def test_synthesize_via_websocket_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "volcengine_speech_api_key", "")
 
     with pytest.raises(ValueError, match="missing_volcengine_tts_credentials"):
         await volcengine_tts_ws.synthesize_via_websocket("你好")
+
+
+@pytest.mark.asyncio
+async def test_tts_adapter_stream_falls_back_when_volcengine_returns_no_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "tts_provider", "volcengine")
+
+    async def fake_stream_synthesize_via_websocket(_text: str, *, audio_format: str | None = None):
+        if False:
+            yield b""
+
+    monkeypatch.setattr(
+        "app.adapters.tts_adapter.stream_synthesize_via_websocket",
+        fake_stream_synthesize_via_websocket,
+    )
+
+    chunks = []
+    async for chunk in tts_adapter.stream_synthesize("你好"):
+        chunks.append(chunk)
+
+    assert chunks
+    assert all(chunk["provider"] == "fallback" for chunk in chunks)
+    assert all(chunk["mimeType"] == "audio/pcm" for chunk in chunks)
 
 
 def _server_frame(

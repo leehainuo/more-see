@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type * as React from "react";
 
 import { TopNav } from "@/components/TopNav";
@@ -26,8 +26,31 @@ export function AppShell({
   const [floatingPosition, setFloatingPosition] = useState<{ left: number; top: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const getClampedPosition = (left: number, top: number, width: number, height: number) => {
+    const maxLeft = Math.max(16, window.innerWidth - width - 16);
+    const maxTop = Math.max(92, window.innerHeight - height - 16);
+
+    return {
+      left: Math.min(Math.max(16, left), maxLeft),
+      top: Math.min(Math.max(92, top), maxTop),
+    };
+  };
+
+  useLayoutEffect(() => {
+    const panel = floatingPanelRef.current;
+    if (!panel || !floatingPanel) {
+      return;
+    }
+
+    const rect = panel.getBoundingClientRect();
+    const nextPosition = getClampedPosition(rect.left, rect.top, rect.width, rect.height);
+    setFloatingPosition((current) =>
+      current && current.left === nextPosition.left && current.top === nextPosition.top ? current : nextPosition,
+    );
+  }, [floatingPanel]);
+
   useEffect(() => {
-    if (!floatingPosition || !floatingPanelRef.current) {
+    if (!floatingPanelRef.current) {
       return;
     }
 
@@ -37,22 +60,16 @@ export function AppShell({
         return;
       }
 
-      const maxLeft = Math.max(16, window.innerWidth - panel.offsetWidth - 16);
-      const maxTop = Math.max(92, window.innerHeight - panel.offsetHeight - 16);
-
       setFloatingPosition((current) =>
         current
-          ? {
-              left: Math.min(Math.max(16, current.left), maxLeft),
-              top: Math.min(Math.max(92, current.top), maxTop),
-            }
-          : current,
+          ? getClampedPosition(current.left, current.top, panel.offsetWidth, panel.offsetHeight)
+          : getClampedPosition(panel.getBoundingClientRect().left, panel.getBoundingClientRect().top, panel.offsetWidth, panel.offsetHeight),
       );
     };
 
     window.addEventListener("resize", clampPosition);
     return () => window.removeEventListener("resize", clampPosition);
-  }, [floatingPosition]);
+  }, [floatingPanel]);
 
   useEffect(() => {
     if (!isDragging) {
@@ -65,13 +82,14 @@ export function AppShell({
         return;
       }
 
-      const maxLeft = Math.max(16, window.innerWidth - panel.offsetWidth - 16);
-      const maxTop = Math.max(92, window.innerHeight - panel.offsetHeight - 16);
-
-      setFloatingPosition({
-        left: Math.min(Math.max(16, event.clientX - dragOffsetRef.current.x), maxLeft),
-        top: Math.min(Math.max(92, event.clientY - dragOffsetRef.current.y), maxTop),
-      });
+      setFloatingPosition(
+        getClampedPosition(
+          event.clientX - dragOffsetRef.current.x,
+          event.clientY - dragOffsetRef.current.y,
+          panel.offsetWidth,
+          panel.offsetHeight,
+        ),
+      );
     };
 
     const handlePointerUp = () => {
@@ -97,10 +115,7 @@ export function AppShell({
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
     };
-    setFloatingPosition({
-      left: rect.left,
-      top: rect.top,
-    });
+    setFloatingPosition(getClampedPosition(rect.left, rect.top, rect.width, rect.height));
     setIsDragging(true);
   };
 
