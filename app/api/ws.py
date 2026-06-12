@@ -1,4 +1,5 @@
 import json
+import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -13,6 +14,39 @@ router = APIRouter()
 async def session_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     await session_service.send_connection_ready(websocket)
+    active_turn_task: asyncio.Task[None] | None = None
+    active_turn_session_id: str | None = None
+    active_turn_id: str | None = None
+
+    def clear_active_turn(task: asyncio.Task[None]) -> None:
+        nonlocal active_turn_task, active_turn_session_id, active_turn_id
+        if active_turn_task is not task:
+            return
+        active_turn_task = None
+        active_turn_session_id = None
+        active_turn_id = None
+
+    async def cancel_active_turn(reason: str) -> None:
+        nonlocal active_turn_task, active_turn_session_id, active_turn_id
+        if active_turn_task is None or active_turn_task.done():
+            return
+        active_turn_task.cancel()
+        try:
+            await active_turn_task
+        except asyncio.CancelledError:
+            pass
+        if active_turn_session_id and active_turn_id:
+            await websocket.send_json(
+                {
+                    "type": "assistant.interrupted",
+                    "sessionId": active_turn_session_id,
+                    "turnId": active_turn_id,
+                    "reason": reason,
+                }
+            )
+        active_turn_task = None
+        active_turn_session_id = None
+        active_turn_id = None
 
     try:
         while True:
@@ -38,10 +72,42 @@ async def session_ws(websocket: WebSocket) -> None:
             elif event_type == "frame.capture":
                 await vision_service.handle_frame_capture(websocket, data)
             elif event_type == "turn.commit":
-                await audio_service.handle_turn_commit(websocket, data)
+                if active_turn_task is not None and not active_turn_task.done():
+                    await websocket.send_json(
+                        {
+                            "type": "session.status",
+                            "sessionId": data.get("sessionId"),
+                            "level": "info",
+                            "message": "AI 正在回复中，请等待当前语音播报结束后再开始下一轮。",
+                        }
+                    )
+                    continue
+                active_turn_session_id = data.get("sessionId")
+                active_turn_id = data.get("turnId")
+                active_turn_task = asyncio.create_task(audio_service.handle_turn_commit(websocket, data))
+                active_turn_task.add_done_callback(clear_active_turn)
             elif event_type == "session.ping":
                 await session_service.handle_ping(websocket, data)
+            elif event_type == "assistant.interrupt":
+                await websocket.send_json(
+                    {
+                        "type": "session.status",
+                        "sessionId": data.get("sessionId"),
+                        "level": "info",
+                        "message": "当前已关闭打断功能，AI 会在播报完成后继续监听。",
+                    }
+                )
+            elif event_type == "asr.partial.request":
+                await websocket.send_json(
+                    {
+                        "type": "session.status",
+                        "sessionId": data.get("sessionId"),
+                        "level": "info",
+                        "message": "当前已关闭打断功能，不再执行实时打断检测。",
+                    }
+                )
             elif event_type == "session.end":
+                await cancel_active_turn("session_end")
                 await session_service.handle_session_end(websocket, data)
             else:
                 await websocket.send_json(
@@ -52,4 +118,6 @@ async def session_ws(websocket: WebSocket) -> None:
                     }
                 )
     except WebSocketDisconnect:
+        if active_turn_task is not None and not active_turn_task.done():
+            active_turn_task.cancel()
         return
