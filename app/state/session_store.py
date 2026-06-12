@@ -26,6 +26,11 @@ class FrameSnapshot:
     height: int
     captured_at: str
     stored_at: str = field(default_factory=utc_now_iso)
+    summary: str | None = None
+    summary_provider: str | None = None
+    summarized_at: str | None = None
+    summary_cache_hit: bool | None = None
+    summary_error: str | None = None
 
 
 @dataclass

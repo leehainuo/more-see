@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+import asyncio
 
 from fastapi import WebSocket
 
@@ -16,6 +17,7 @@ _PARTIAL_MIN_DURATION_MS = 300
 _PARTIAL_MIN_CHUNKS = 2
 _BARGE_IN_CONFIRM_HITS = 2
 _BARGE_IN_LONG_PARTIAL_LEN = 6
+_VISION_SUMMARY_BUDGET_SECONDS = 0.6
 _NORMALIZE_TEXT_RE = re.compile(r"""[\s，。！？；：、“”"'`~!@#$%^&*()_+\-=\[\]{};:\\|,.<>/?《》【】（）]""")
 
 
@@ -152,6 +154,12 @@ class AudioService:
             )
             return
 
+        turn_id = payload.get("turnId", str(uuid.uuid4()))
+        include_vision = bool(payload.get("includeVision", False))
+        vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
+        if include_vision:
+            vision_task = asyncio.create_task(vision_service.summarize_latest_frame(session_id, turn_id))
+
         chunks = session_store.consume_audio_chunks(session_id)
         if not chunks:
             await websocket.send_json(
@@ -175,8 +183,6 @@ class AudioService:
             )
             return
 
-        turn_id = payload.get("turnId", str(uuid.uuid4()))
-        include_vision = bool(payload.get("includeVision", False))
         vision_summary: str | None = None
 
         logger.info(
@@ -227,7 +233,17 @@ class AudioService:
             return
 
         if include_vision:
-            vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
+            vision_result: dict[str, str | bool] | None = None
+            if vision_task is not None:
+                try:
+                    vision_result = await asyncio.wait_for(
+                        asyncio.shield(vision_task),
+                        timeout=_VISION_SUMMARY_BUDGET_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    vision_result = None
+            else:
+                vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
             if vision_result is None:
                 await websocket.send_json(
                     {
@@ -253,6 +269,8 @@ class AudioService:
                         **vision_result,
                     }
                 )
+        elif vision_task is not None:
+            vision_task.cancel()
 
         await conversation_service.stream_turn_reply(
             websocket=websocket,
