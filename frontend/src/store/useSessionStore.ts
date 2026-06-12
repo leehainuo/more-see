@@ -128,6 +128,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   addLocalKeyframe: (frame) => {
     set((state) => ({
       visionStatus: "capturing",
+      visionSummary: "",
       keyframes: [frame, ...state.keyframes].slice(0, 6),
       systemMessage: "关键帧已抓取，正在等待后端视觉摘要。",
     }));
@@ -311,19 +312,35 @@ export const useSessionStore = create<SessionState>((set) => ({
         }
 
         case "tts.start":
+          if (state.sessionStatus === "closed" || state.sessionStatus === "error") {
+            return state;
+          }
           return {
+            sessionStatus: state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
             assistantAudioStatus: "speaking",
-            systemMessage: "AI 正在播报语音，播报结束后会继续监听你的下一轮发言。",
+            systemMessage:
+              state.sessionStatus === "ready"
+                ? "AI 正在播报语音，播报结束后会继续监听你的下一轮发言。"
+                : state.systemMessage,
           };
 
         case "tts.done":
+          if (state.sessionStatus === "closed" || state.sessionStatus === "error") {
+            return state;
+          }
           return {
-            sessionStatus: "streaming",
+            sessionStatus: state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
             assistantAudioStatus: "speaking",
-            systemMessage: "AI 语音数据已发送完成，正在播放剩余音频。",
+            systemMessage:
+              state.sessionStatus === "streaming" || state.sessionStatus === "ready"
+                ? "AI 语音数据已发送完成，正在播放剩余音频。"
+                : state.systemMessage,
           };
 
         case "assistant.interrupted":
+          if (state.sessionStatus === "closed" || state.sessionStatus === "error") {
+            return state;
+          }
           return {
             assistantAudioStatus: "idle",
             sessionStatus: state.sessionStatus === "streaming" ? "ready" : state.sessionStatus,

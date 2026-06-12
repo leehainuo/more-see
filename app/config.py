@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     volcengine_tts_sample_rate: int = 24000
     volcengine_asr_resource_id: str = "volc.seedasr.sauc.duration"
     volcengine_asr_language: str = "zh-CN"
+    volcengine_asr_ws_url: str = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
+    volcengine_asr_stream_ws_url: str = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+    volcengine_asr_streaming_enabled: bool = False
     volcengine_ssl_cert_file: str = ""
     ark_api_key: str = ""
     ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"

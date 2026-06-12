@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+import asyncio
 
 from fastapi import WebSocket
 
 from app.adapters.asr_adapter import asr_adapter, is_fallback_transcript
 from app.state.session_store import session_store
+from app.services.asr_stream_service import asr_stream_service
 from app.services.conversation_service import conversation_service
 from app.services.vision_service import vision_service
 
@@ -16,6 +18,7 @@ _PARTIAL_MIN_DURATION_MS = 300
 _PARTIAL_MIN_CHUNKS = 2
 _BARGE_IN_CONFIRM_HITS = 2
 _BARGE_IN_LONG_PARTIAL_LEN = 6
+_VISION_SUMMARY_BUDGET_SECONDS = 2.0
 _NORMALIZE_TEXT_RE = re.compile(r"""[\s，。！？；：、“”"'`~!@#$%^&*()_+\-=\[\]{};:\\|,.<>/?《》【】（）]""")
 
 
@@ -72,6 +75,13 @@ class AudioService:
                 }
             )
             return
+        asyncio.create_task(
+            asr_stream_service.push_audio_chunk(
+                session_id=session_id,
+                mime_type=chunk.mime_type,
+                base64_audio=chunk.base64_audio,
+            )
+        )
 
     def should_probe_barge_in(self, session_id: str) -> bool:
         session = session_store.get_assistant_state(session_id)
@@ -152,6 +162,18 @@ class AudioService:
             )
             return
 
+        turn_id = payload.get("turnId", str(uuid.uuid4()))
+        include_vision = bool(payload.get("includeVision", False))
+        frame_id = payload.get("frameId")
+        vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
+        if include_vision:
+            if isinstance(frame_id, str) and frame_id:
+                vision_task = asyncio.create_task(
+                    vision_service.summarize_frame(session_id=session_id, turn_id=turn_id, frame_id=frame_id)
+                )
+            else:
+                vision_task = asyncio.create_task(vision_service.summarize_latest_frame(session_id, turn_id))
+
         chunks = session_store.consume_audio_chunks(session_id)
         if not chunks:
             await websocket.send_json(
@@ -164,7 +186,16 @@ class AudioService:
             return
 
         try:
-            result = await asr_adapter.transcribe(chunks)
+            transcript = await asr_stream_service.finalize(session_id=session_id)
+            if transcript is None:
+                result = await asr_adapter.transcribe(chunks)
+            else:
+                result = {
+                    "transcript": transcript,
+                    "provider": "volcengine",
+                    "durationMs": sum(chunk.duration_ms for chunk in chunks),
+                    "chunkCount": len(chunks),
+                }
         except Exception as exc:
             await websocket.send_json(
                 {
@@ -175,8 +206,6 @@ class AudioService:
             )
             return
 
-        turn_id = payload.get("turnId", str(uuid.uuid4()))
-        include_vision = bool(payload.get("includeVision", False))
         vision_summary: str | None = None
 
         logger.info(
@@ -227,7 +256,24 @@ class AudioService:
             return
 
         if include_vision:
-            vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
+            vision_result: dict[str, str | bool] | None = None
+            if vision_task is not None:
+                try:
+                    vision_result = await asyncio.wait_for(
+                        asyncio.shield(vision_task),
+                        timeout=_VISION_SUMMARY_BUDGET_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    vision_result = None
+            else:
+                if isinstance(frame_id, str) and frame_id:
+                    vision_result = await vision_service.summarize_frame(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        frame_id=frame_id,
+                    )
+                else:
+                    vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
             if vision_result is None:
                 await websocket.send_json(
                     {
@@ -253,6 +299,8 @@ class AudioService:
                         **vision_result,
                     }
                 )
+        elif vision_task is not None:
+            vision_task.cancel()
 
         await conversation_service.stream_turn_reply(
             websocket=websocket,

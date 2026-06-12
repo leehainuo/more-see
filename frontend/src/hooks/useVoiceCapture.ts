@@ -13,12 +13,18 @@ type VoiceCaptureOptions = {
     base64Audio: string;
     durationMs: number;
   }) => void;
-  commitTurn: (payload: { sessionId: string; turnId: string; silenceMs: number; includeVision: boolean }) => void;
-  captureFrameForTurn: (payload: { sessionId: string; inputSource: "camera" | "screen" }) => Promise<boolean>;
+  commitTurn: (payload: {
+    sessionId: string;
+    turnId: string;
+    frameId?: string;
+    silenceMs: number;
+    includeVision: boolean;
+  }) => void;
+  captureFrameForTurn: (payload: { sessionId: string; inputSource: "camera" | "screen" }) => Promise<string | null>;
 };
 
 const SILENCE_THRESHOLD = 0.02;
-const AUTO_COMMIT_MS = 1200;
+const AUTO_COMMIT_MS = 700;
 const TARGET_SAMPLE_RATE = 16000;
 // 8192 samples at common browser input rates lands around 170-185ms,
 // which is closer to the ASR doc recommendation of 100-200ms per chunk.
@@ -81,6 +87,7 @@ export function useVoiceCapture({
   const recordedDurationMsRef = useRef(0);
   const isTurnActiveRef = useRef(false);
   const committingTurnRef = useRef(false);
+  const visionCaptureRequestedRef = useRef(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const inputLevel = useSessionStore((state) => state.inputLevel);
   const recordedChunks = useSessionStore((state) => state.recordedChunks);
@@ -99,6 +106,7 @@ export function useVoiceCapture({
     isTurnActiveRef.current = false;
     chunkCountRef.current = 0;
     recordedDurationMsRef.current = 0;
+    visionCaptureRequestedRef.current = false;
     setRecordedChunks(0);
     setRecordingState("ready", 0);
   }, [setRecordedChunks, setRecordingState]);
@@ -106,16 +114,17 @@ export function useVoiceCapture({
   const finalizeTurn = useCallback(
     async (activeSessionId: string) => {
       const turnId = crypto.randomUUID();
-      const includeVision =
-        visionEnabled &&
-        (await captureFrameForTurn({
-          sessionId: activeSessionId,
-          inputSource,
-        }));
+      let frameId: string | undefined;
+      const includeVision = visionEnabled;
+      if (visionEnabled) {
+        visionCaptureRequestedRef.current = true;
+        frameId = (await captureFrameForTurn({ sessionId: activeSessionId, inputSource })) ?? undefined;
+      }
 
       commitTurn({
         sessionId: activeSessionId,
         turnId,
+        frameId,
         silenceMs: AUTO_COMMIT_MS,
         includeVision,
       });
@@ -143,6 +152,7 @@ export function useVoiceCapture({
       committingTurnRef.current = false;
       chunkCountRef.current = 0;
       recordedDurationMsRef.current = 0;
+      visionCaptureRequestedRef.current = false;
       setRecordedChunks(0);
     });
   }, [cleanupSilenceTimer, finalizeTurn, resetTurnState, sessionId, setRecordedChunks, setRecordingState]);
@@ -308,7 +318,9 @@ export function useVoiceCapture({
       setIsCapturing(false);
     }
   }, [
+    captureFrameForTurn,
     isCapturing,
+    inputSource,
     monitorVolume,
     cleanupSilenceTimer,
     resetTurnState,
@@ -316,6 +328,7 @@ export function useVoiceCapture({
     sessionId,
     setRecordedChunks,
     setRecordingState,
+    visionEnabled,
   ]);
 
   useEffect(() => {

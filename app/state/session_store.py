@@ -26,6 +26,11 @@ class FrameSnapshot:
     height: int
     captured_at: str
     stored_at: str = field(default_factory=utc_now_iso)
+    summary: str | None = None
+    summary_provider: str | None = None
+    summarized_at: str | None = None
+    summary_cache_hit: bool | None = None
+    summary_error: str | None = None
 
 
 @dataclass
@@ -204,6 +209,15 @@ class SessionStore:
         if session is None or not session.frames:
             return None
         return session.frames[-1]
+
+    def get_frame(self, session_id: str, frame_id: str) -> FrameSnapshot | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        for frame in reversed(session.frames):
+            if frame.frame_id == frame_id:
+                return frame
+        return None
 
     def save_turn(
         self,

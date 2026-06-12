@@ -73,6 +73,7 @@ export function useSessionLifecycle() {
   const commitTurn = (payload: {
     sessionId: string;
     turnId: string;
+    frameId?: string;
     silenceMs: number;
     includeVision: boolean;
   }) => {

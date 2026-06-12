@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 _PROBE_IMAGE_BASE64 = (
     "R0lGODdhEAAQAIABAAAAAP///ywAAAAAEAAQAAACF4yPqcvtD6OctNqLs968+w+G4kiW5omm6sq27gvH8kzXAgA7"
 )
-_ASR_WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
 _TTS_WS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
 
 
@@ -90,7 +89,8 @@ async def _probe_speech_ws(url: str, *, resource_id: str) -> tuple[bool, str]:
 
 
 async def _probe_asr() -> tuple[bool, str]:
-    return await _probe_speech_ws(_ASR_WS_URL, resource_id=settings.volcengine_asr_resource_id)
+    url = settings.volcengine_asr_stream_ws_url if settings.volcengine_asr_streaming_enabled else settings.volcengine_asr_ws_url
+    return await _probe_speech_ws(url, resource_id=settings.volcengine_asr_resource_id)
 
 
 async def _probe_tts() -> tuple[bool, str]:
