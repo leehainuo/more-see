@@ -128,6 +128,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   addLocalKeyframe: (frame) => {
     set((state) => ({
       visionStatus: "capturing",
+      visionSummary: "",
       keyframes: [frame, ...state.keyframes].slice(0, 6),
       systemMessage: "关键帧已抓取，正在等待后端视觉摘要。",
     }));
