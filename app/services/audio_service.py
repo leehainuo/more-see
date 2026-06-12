@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+import uuid
+
+from fastapi import WebSocket
+
+from app.adapters.asr_adapter import asr_adapter
+from app.state.session_store import session_store
+
+
+class AudioService:
+    async def handle_audio_chunk(self, websocket: WebSocket, payload: dict) -> None:
+        session_id = payload.get("sessionId")
+        if not session_id:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "missing_session_id",
+                    "message": "上传音频分段时必须提供 sessionId。",
+                }
+            )
+            return
+
+        chunk = session_store.add_audio_chunk(
+            session_id=session_id,
+            chunk_id=payload.get("chunkId", str(uuid.uuid4())),
+            mime_type=payload.get("mimeType", "audio/webm"),
+            base64_audio=payload.get("base64Audio", ""),
+            duration_ms=int(payload.get("durationMs", 0)),
+        )
+        if chunk is None:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "session_not_found",
+                    "message": "会话不存在，请先开始会话再上传音频。",
+                }
+            )
+            return
+
+        session = session_store.get_session(session_id)
+        await websocket.send_json(
+            {
+                "type": "session.status",
+                "sessionId": session_id,
+                "level": "info",
+                "message": f"已缓存 {len(session.audio_chunks)} 段音频，等待静音自动提交。",
+            }
+        )
+
+    async def handle_turn_commit(self, websocket: WebSocket, payload: dict) -> None:
+        session_id = payload.get("sessionId")
+        if not session_id:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "missing_session_id",
+                    "message": "提交语音轮次时必须提供 sessionId。",
+                }
+            )
+            return
+
+        chunks = session_store.consume_audio_chunks(session_id)
+        if not chunks:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "empty_audio",
+                    "message": "当前没有可识别的音频分段，请先开始说话。",
+                }
+            )
+            return
+
+        result = await asr_adapter.transcribe(chunks)
+        turn_id = payload.get("turnId", str(uuid.uuid4()))
+
+        await websocket.send_json(
+            {
+                "type": "asr.result",
+                "sessionId": session_id,
+                "turnId": turn_id,
+                "transcript": result["transcript"],
+                "provider": result["provider"],
+                "durationMs": result["durationMs"],
+                "chunkCount": result["chunkCount"],
+            }
+        )
+        await websocket.send_json(
+            {
+                "type": "session.status",
+                "sessionId": session_id,
+                "level": "info",
+                "message": "语音已自动提交并完成识别，下一阶段将接入视觉和 LLM 编排。",
+            }
+        )
+
+
+audio_service = AudioService()

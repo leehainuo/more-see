@@ -6,6 +6,21 @@ export type ClientEvent =
       deviceInfo?: { micLabel?: string; cameraLabel?: string };
     }
   | {
+      type: "audio.chunk";
+      sessionId: string;
+      chunkId: string;
+      mimeType: string;
+      base64Audio: string;
+      durationMs: number;
+    }
+  | {
+      type: "turn.commit";
+      sessionId: string;
+      turnId: string;
+      silenceMs: number;
+      includeVision: boolean;
+    }
+  | {
       type: "session.ping";
       sessionId?: string;
     }
@@ -31,6 +46,15 @@ export type ServerEvent =
       sessionId: string;
       level: "info" | "warning" | "error";
       message: string;
+    }
+  | {
+      type: "asr.result";
+      sessionId: string;
+      turnId: string;
+      transcript: string;
+      provider: string;
+      durationMs: number;
+      chunkCount: number;
     }
   | {
       type: "session.pong";

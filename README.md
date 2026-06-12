@@ -4,7 +4,8 @@
 
 ## 当前阶段
 - 已完成 `uv + FastAPI + React + shadcn/ui` 工程初始化
-- 已提供 `healthz`、`/api/config/public` 和 WebSocket 占位入口
+- 已完成 WebSocket 会话生命周期
+- 已接入麦克风采集、音频分段上报与 mock ASR 识别回传
 - 已提供黑白极简风格的 React 工作台、会话记录页和设置页骨架
 
 ## 技术栈
@@ -58,7 +59,10 @@ cd frontend && npm run check
 ## 环境变量
 复制 `.env.example` 为 `.env` 后按需填写模型密钥。
 
+- `ASR_PROVIDER=mock`：默认启用 mock ASR，方便在无云端密钥环境下联调
+- 后续接入真实阿里云或百度 ASR 时，可继续扩展对应适配器
+
 ## 下一步
-- 接入 `WebSocket` 会话生命周期
-- 接入麦克风、关键帧抓取与视觉理解
+- 接入关键帧抓取与视觉理解
 - 接入流式大模型回复与浏览器 TTS
+- 接入屏幕共享与双视觉切换
