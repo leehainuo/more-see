@@ -133,7 +133,7 @@ export function useVoiceCapture({
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setIsCapturing(false);
-    setRecordingState("transcribing", 0);
+    setRecordingState("recognizing", 0);
 
     const activeSessionId = sessionId;
     if (!activeSessionId || recordedDurationMsRef.current <= 0) {
