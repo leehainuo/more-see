@@ -2,55 +2,61 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useVisualCapture } from "@/hooks/useVisualCapture";
 import { useVoiceCapture } from "@/hooks/useVoiceCapture";
-import { synthesizeTts } from "@/lib/api";
 import { SessionWebSocketClient } from "@/lib/ws-client";
 import { useSessionStore } from "@/store/useSessionStore";
+
+type InputSource = "camera" | "screen";
+
+function splitIntoSpeechSegments(text: string) {
+  return text
+    .split(/(?<=[。！？!?；;：:\n])/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
 
 export function useSessionLifecycle() {
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
   const sessionId = useSessionStore((state) => state.sessionId);
   const sessionStatus = useSessionStore((state) => state.sessionStatus);
+  const inputSource = useSessionStore((state) => state.inputSource);
+  const setInputSource = useSessionStore((state) => state.setInputSource);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const appendUserMessage = useSessionStore((state) => state.appendUserMessage);
 
   const client = useMemo(() => new SessionWebSocketClient(), []);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
-  const inputSource = "camera" as const;
+  const speechTokenRef = useRef(0);
 
-  const revokeCurrentAudioUrl = useCallback(() => {
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-  }, []);
-
-  const playAssistantSpeech = useCallback(async (text: string) => {
+  const speakAssistantText = useCallback(async (text: string) => {
     const cleanedText = text.trim();
     if (!cleanedText) {
       return;
     }
 
-    const result = await synthesizeTts(cleanedText);
-    const binary = window.atob(result.audioBase64);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const blob = new Blob([bytes], { type: result.mimeType });
-    const url = URL.createObjectURL(blob);
+    if (!("speechSynthesis" in window)) {
+      throw new Error("当前浏览器不支持 SpeechSynthesis。");
+    }
 
-    audioRef.current?.pause();
-    revokeCurrentAudioUrl();
+    const segments = splitIntoSpeechSegments(cleanedText);
+    const token = speechTokenRef.current + 1;
+    speechTokenRef.current = token;
+    window.speechSynthesis.cancel();
 
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audioUrlRef.current = url;
-    audio.onended = () => {
-      revokeCurrentAudioUrl();
-      if (audioRef.current === audio) {
-        audioRef.current = null;
+    for (const segment of segments) {
+      if (speechTokenRef.current !== token) {
+        break;
       }
-    };
-    await audio.play();
-  }, [revokeCurrentAudioUrl]);
+
+      await new Promise<void>((resolve, reject) => {
+        const utterance = new SpeechSynthesisUtterance(segment);
+        utterance.lang = "zh-CN";
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        utterance.onend = () => resolve();
+        utterance.onerror = () => reject(new Error("浏览器语音播报失败。"));
+        window.speechSynthesis.speak(utterance);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     client.onStatusChange((status) => {
@@ -59,7 +65,7 @@ export function useSessionLifecycle() {
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
       if (event.type === "llm.done") {
-        void playAssistantSpeech(event.fullText).catch((error: unknown) => {
+        void speakAssistantText(event.fullText).catch((error: unknown) => {
           const message = error instanceof Error ? error.message : "未知错误";
           useSessionStore.setState({
             systemMessage: `AI 文本已返回，但语音播报失败：${message}`,
@@ -70,12 +76,11 @@ export function useSessionLifecycle() {
     client.connect();
 
     return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
-      revokeCurrentAudioUrl();
+      speechTokenRef.current += 1;
+      window.speechSynthesis?.cancel();
       client.disconnect();
     };
-  }, [client, playAssistantSpeech, revokeCurrentAudioUrl]);
+  }, [client, speakAssistantText]);
 
   useEffect(() => {
     if (connectionStatus !== "connected" || !sessionId) {
@@ -126,7 +131,7 @@ export function useSessionLifecycle() {
   const sendFrameCapture = (payload: {
     sessionId: string;
     frameId: string;
-    inputSource: "camera" | "screen";
+    inputSource: InputSource;
     imageBase64: string;
     width: number;
     height: number;
@@ -138,8 +143,18 @@ export function useSessionLifecycle() {
     });
   };
 
-  const { bindVideoElement, isPreviewReady, startPreview, stopPreview, captureFrameForTurn } = useVisualCapture({
+  const {
+    bindMainVideoElement,
+    bindPipVideoElement,
+    isMainPreviewReady,
+    isPipPreviewReady,
+    startPreview,
+    stopPreview,
+    captureFrameForTurn,
+  } = useVisualCapture({
+    inputSource,
     sendFrameCapture,
+    onInputSourceChange: setInputSource,
   });
 
   const { inputLevel, recordedChunks, isCapturing, startCapture, stopCapture } = useVoiceCapture({
@@ -163,15 +178,15 @@ export function useSessionLifecycle() {
       return;
     }
     if (visionEnabled) {
-      void startPreview();
+      void startPreview(inputSource);
       return;
     }
     stopPreview();
-  }, [sessionId, startPreview, stopPreview, visionEnabled]);
+  }, [inputSource, sessionId, startPreview, stopPreview, visionEnabled]);
 
   const startSession = async () => {
     if (visionEnabled) {
-      await startPreview();
+      await startPreview(inputSource);
     }
     appendUserMessage("准备开始新一轮多模态对话，请说出你的问题，我会结合当前画面一起理解。");
     client.send({
@@ -179,7 +194,7 @@ export function useSessionLifecycle() {
       inputSource,
       deviceInfo: {
         micLabel: "Default microphone",
-        cameraLabel: "Default camera",
+        cameraLabel: inputSource === "screen" ? "Screen share" : "Default camera",
       },
     });
   };
@@ -203,12 +218,16 @@ export function useSessionLifecycle() {
     connectionStatus,
     sessionStatus,
     sessionId,
+    inputSource,
     inputLevel,
     recordedChunks,
     isCapturing,
-    isPreviewReady,
-    bindVideoElement,
+    isMainPreviewReady,
+    isPipPreviewReady,
+    bindMainVideoElement,
+    bindPipVideoElement,
     visionEnabled,
+    setInputSource,
     reconnect,
     startSession,
     closeSession,

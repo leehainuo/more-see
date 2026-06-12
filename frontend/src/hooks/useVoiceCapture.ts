@@ -266,16 +266,12 @@ export function useVoiceCapture({
       setIsCapturing(false);
     }
   }, [
-    commitTurn,
-    captureFrameForTurn,
-    inputSource,
     isCapturing,
     monitorVolume,
     sendAudioChunk,
     sessionId,
     setRecordedChunks,
     setRecordingState,
-    visionEnabled,
   ]);
 
   useEffect(() => {

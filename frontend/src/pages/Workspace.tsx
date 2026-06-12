@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AudioLines, Camera } from "lucide-react";
+import { AudioLines, Camera, Monitor } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
@@ -83,10 +83,14 @@ export default function Workspace() {
     connectionStatus,
     sessionId,
     sessionStatus,
+    inputSource,
     inputLevel,
     isCapturing,
-    isPreviewReady,
-    bindVideoElement,
+    isMainPreviewReady,
+    isPipPreviewReady,
+    bindMainVideoElement,
+    bindPipVideoElement,
+    setInputSource,
     reconnect,
     startSession,
     closeSession,
@@ -134,23 +138,6 @@ export default function Workspace() {
     }
   }, [setVisionEnabled, visionEnabled]);
 
-  useEffect(() => {
-    if (isCapturing) {
-      setIsCapturePending(false);
-      return;
-    }
-
-    if (
-      sessionStatus === "recognizing" ||
-      sessionStatus === "transcribing" ||
-      sessionStatus === "error" ||
-      sessionStatus === "idle" ||
-      sessionStatus === "closed"
-    ) {
-      setIsCapturePending(false);
-    }
-  }, [isCapturing, sessionStatus]);
-
   const handleSessionToggle = () => {
     if (sessionId) {
       closeSession();
@@ -180,29 +167,81 @@ export default function Workspace() {
     await startCapture();
   };
 
-  const isRecordButtonExpanded = isCapturing || isCapturePending;
+  const isCaptureBooting =
+    isCapturePending &&
+    !isCapturing &&
+    sessionStatus !== "recognizing" &&
+    sessionStatus !== "transcribing" &&
+    sessionStatus !== "error" &&
+    sessionStatus !== "idle" &&
+    sessionStatus !== "closed";
+  const isRecordButtonExpanded = isCapturing || isCaptureBooting;
+  const isScreenMode = inputSource === "screen";
+  const sourceSwitchDisabled =
+    isCapturing || sessionStatus === "recognizing" || sessionStatus === "transcribing";
+
+  const handleSourceChange = (nextSource: "camera" | "screen") => {
+    if (sourceSwitchDisabled || inputSource === nextSource) {
+      return;
+    }
+    setInputSource(nextSource);
+  };
 
   const floatingVideoPanel = (
-    <div className="w-[288px] overflow-hidden rounded-lg border-border bg-[#f5f5f5] shadow-[0_24px_60px_rgba(0,0,0,0.16)]">
-      <div className="relative h-[188px]">
+    <div className="w-[320px] overflow-hidden rounded-[22px] border border-black/10 bg-[#f5f5f5] shadow-[0_24px_60px_rgba(0,0,0,0.16)]">
+      <div className="relative aspect-16/10 bg-zinc-950">
         <video
-          ref={bindVideoElement}
+          ref={bindMainVideoElement}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
-            isPreviewReady ? "opacity-100" : "opacity-0"
+            isMainPreviewReady ? "opacity-100" : "opacity-0"
           }`}
           autoPlay
           playsInline
           muted
         />
 
-        {!isPreviewReady ? (
-          <div className="absolute inset-0 grid place-items-center p-2">
-            <div className="rounded-[24px] border border-border px-12 py-7 text-center backdrop-blur">
-              <Camera className="mx-auto size-6 text-zinc-500" />
+        <div className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] tracking-[0.18em] text-white/90 uppercase backdrop-blur">
+          {isScreenMode ? "Screen" : "Camera"}
+        </div>
+
+        {!isMainPreviewReady ? (
+          <div className="absolute inset-0 grid place-items-center p-4">
+            <div className="rounded-[24px] border border-white/15 bg-white/8 px-12 py-7 text-center backdrop-blur">
+              {isScreenMode ? (
+                <Monitor className="mx-auto size-6 text-white/65" />
+              ) : (
+                <Camera className="mx-auto size-6 text-white/65" />
+              )}
+              <p className="mt-3 text-sm text-white/72">
+                {isScreenMode ? "等待屏幕共享画面" : "等待摄像头画面"}
+              </p>
             </div>
           </div>
         ) : null}
 
+        {isScreenMode ? (
+          <div className="absolute bottom-3 right-3 w-[112px] overflow-hidden rounded-2xl border border-white/20 bg-black/55 shadow-[0_16px_36px_rgba(0,0,0,0.34)] backdrop-blur">
+            <div className="relative aspect-3/4 bg-zinc-900">
+              <video
+                ref={bindPipVideoElement}
+                className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
+                  isPipPreviewReady ? "opacity-100" : "opacity-0"
+                }`}
+                autoPlay
+                playsInline
+                muted
+              />
+              {!isPipPreviewReady ? (
+                <div className="absolute inset-0 grid place-items-center">
+                  <Camera className="size-5 text-white/58" />
+                </div>
+              ) : null}
+              <div className="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-white/90">
+                Self
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -235,8 +274,39 @@ export default function Workspace() {
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1 px-1">
                 <p className="truncate text-[1.05rem] text-zinc-500">
-                  {sessionId ? "可以继续说话，我会结合当前画面回复" : "有问题，尽管问"}
+                  {sessionId
+                    ? isScreenMode
+                      ? "正在结合你的屏幕与语音理解问题"
+                      : "可以继续说话，我会结合当前画面回复"
+                    : "有问题，尽管问"}
                 </p>
+              </div>
+
+              <div className="flex items-center rounded-full border border-black/10 bg-zinc-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange("camera")}
+                  disabled={sourceSwitchDisabled}
+                  className={cn(
+                    "flex h-9 items-center gap-2 rounded-full px-3 text-sm transition-colors disabled:cursor-not-allowed",
+                    inputSource === "camera" ? "bg-black text-white" : "text-zinc-600 hover:bg-black/5",
+                  )}
+                >
+                  <Camera className="size-4" />
+                  镜头
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange("screen")}
+                  disabled={sourceSwitchDisabled}
+                  className={cn(
+                    "flex h-9 items-center gap-2 rounded-full px-3 text-sm transition-colors disabled:cursor-not-allowed",
+                    inputSource === "screen" ? "bg-black text-white" : "text-zinc-600 hover:bg-black/5",
+                  )}
+                >
+                  <Monitor className="size-4" />
+                  屏幕
+                </button>
               </div>
 
               <button
@@ -260,13 +330,13 @@ export default function Workspace() {
                   !sessionId ||
                   sessionStatus === "recognizing" ||
                   sessionStatus === "transcribing" ||
-                  (isCapturePending && !isCapturing)
+                  isCaptureBooting
                 }
                 className={cn(
                   "flex h-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black text-white transition-all duration-300 ease-[cubic-bezier(0.22,0.9,0.22,1)] disabled:cursor-not-allowed disabled:bg-zinc-400",
                   isRecordButtonExpanded ? "w-[124px] px-4 shadow-[0_14px_32px_rgba(0,0,0,0.22)]" : "w-11 px-0 shadow-[0_10px_24px_rgba(0,0,0,0.18)]",
                 )}
-                aria-label={isCapturing ? "结束录音" : isCapturePending ? "正在启动录音" : "开始录音"}
+                aria-label={isCapturing ? "结束录音" : isCaptureBooting ? "正在启动录音" : "开始录音"}
               >
                 {isRecordButtonExpanded ? (
                   <div

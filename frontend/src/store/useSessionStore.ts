@@ -5,11 +5,12 @@ import type { ChatMessage, ServerEvent } from "@/lib/ws-types";
 type ConnectionStatus = "idle" | "connecting" | "connected" | "closed";
 type SessionStatus = "idle" | "ready" | "recording" | "recognizing" | "transcribing" | "streaming" | "closed" | "error";
 type VisionStatus = "idle" | "preview" | "capturing" | "summarizing" | "ready" | "error";
+type InputSource = "camera" | "screen";
 type Keyframe = {
   id: string;
   dataUrl: string;
   capturedAt: string;
-  inputSource: "camera" | "screen";
+  inputSource: InputSource;
   width: number;
   height: number;
   summary?: string;
@@ -24,6 +25,7 @@ type SessionState = {
   inputLevel: number;
   recordedChunks: number;
   messages: ChatMessage[];
+  inputSource: InputSource;
   visionEnabled: boolean;
   visionStatus: VisionStatus;
   visionSummary: string;
@@ -31,6 +33,7 @@ type SessionState = {
   setConnectionStatus: (status: ConnectionStatus) => void;
   setRecordingState: (status: "recording" | "recognizing" | "transcribing" | "ready", level?: number) => void;
   setRecordedChunks: (count: number) => void;
+  setInputSource: (source: InputSource) => void;
   setVisionEnabled: (enabled: boolean) => void;
   setVisionStatus: (status: VisionStatus, systemMessage?: string) => void;
   addLocalKeyframe: (frame: Keyframe) => void;
@@ -49,6 +52,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   inputLevel: 0,
   recordedChunks: 0,
   messages: initialMessages,
+  inputSource: "camera",
   visionEnabled: true,
   visionStatus: "idle",
   visionSummary: "",
@@ -87,6 +91,17 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({
       recordedChunks: count,
     });
+  },
+
+  setInputSource: (inputSource) => {
+    set((state) => ({
+      inputSource,
+      visionStatus: state.visionEnabled ? "preview" : "idle",
+      systemMessage:
+        inputSource === "screen"
+          ? "已切换到屏幕共享模式，主画面会使用屏幕，摄像头保留为小窗。"
+          : "已切换到摄像头模式，当前主画面将直接使用自拍画面。",
+    }));
   },
 
   setVisionEnabled: (enabled) => {
@@ -151,6 +166,7 @@ export const useSessionStore = create<SessionState>((set) => ({
           return {
             sessionId: event.sessionId,
             sessionStatus: "ready",
+            inputSource: event.inputSource,
             visionStatus: state.visionEnabled ? "preview" : "idle",
             systemMessage: `会话 ${event.sessionId.slice(0, 8)} 已创建，可持续接收事件。`,
           };
