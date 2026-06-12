@@ -80,6 +80,19 @@ class VisionService:
 
     async def summarize_latest_frame(self, session_id: str, turn_id: str) -> dict[str, str | bool] | None:
         frame = session_store.get_latest_frame(session_id)
+        return await self._summarize_frame_for_turn(session_id=session_id, turn_id=turn_id, frame=frame)
+
+    async def summarize_frame(self, *, session_id: str, turn_id: str, frame_id: str) -> dict[str, str | bool] | None:
+        frame = session_store.get_frame(session_id, frame_id)
+        return await self._summarize_frame_for_turn(session_id=session_id, turn_id=turn_id, frame=frame)
+
+    async def _summarize_frame_for_turn(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        frame: FrameSnapshot | None,
+    ) -> dict[str, str | bool] | None:
         if frame is None:
             return None
 

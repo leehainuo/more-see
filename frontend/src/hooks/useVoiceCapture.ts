@@ -13,8 +13,14 @@ type VoiceCaptureOptions = {
     base64Audio: string;
     durationMs: number;
   }) => void;
-  commitTurn: (payload: { sessionId: string; turnId: string; silenceMs: number; includeVision: boolean }) => void;
-  captureFrameForTurn: (payload: { sessionId: string; inputSource: "camera" | "screen" }) => Promise<boolean>;
+  commitTurn: (payload: {
+    sessionId: string;
+    turnId: string;
+    frameId?: string;
+    silenceMs: number;
+    includeVision: boolean;
+  }) => void;
+  captureFrameForTurn: (payload: { sessionId: string; inputSource: "camera" | "screen" }) => Promise<string | null>;
 };
 
 const SILENCE_THRESHOLD = 0.02;
@@ -108,18 +114,17 @@ export function useVoiceCapture({
   const finalizeTurn = useCallback(
     async (activeSessionId: string) => {
       const turnId = crypto.randomUUID();
+      let frameId: string | undefined;
       const includeVision = visionEnabled;
-      if (visionEnabled && !visionCaptureRequestedRef.current) {
+      if (visionEnabled) {
         visionCaptureRequestedRef.current = true;
-        void captureFrameForTurn({
-          sessionId: activeSessionId,
-          inputSource,
-        }).catch(() => {});
+        frameId = (await captureFrameForTurn({ sessionId: activeSessionId, inputSource })) ?? undefined;
       }
 
       commitTurn({
         sessionId: activeSessionId,
         turnId,
+        frameId,
         silenceMs: AUTO_COMMIT_MS,
         includeVision,
       });
@@ -287,13 +292,6 @@ export function useVoiceCapture({
           isTurnActiveRef.current = true;
           chunkCountRef.current = 0;
           recordedDurationMsRef.current = 0;
-          if (visionEnabled && sessionId && !visionCaptureRequestedRef.current) {
-            visionCaptureRequestedRef.current = true;
-            void captureFrameForTurn({
-              sessionId,
-              inputSource,
-            }).catch(() => {});
-          }
           cleanupSilenceTimer();
         }
 

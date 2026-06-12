@@ -27,6 +27,7 @@ export type ClientEvent =
       type: "turn.commit";
       sessionId: string;
       turnId: string;
+      frameId?: string;
       silenceMs: number;
       includeVision: boolean;
     }

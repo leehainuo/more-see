@@ -164,9 +164,15 @@ class AudioService:
 
         turn_id = payload.get("turnId", str(uuid.uuid4()))
         include_vision = bool(payload.get("includeVision", False))
+        frame_id = payload.get("frameId")
         vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
         if include_vision:
-            vision_task = asyncio.create_task(vision_service.summarize_latest_frame(session_id, turn_id))
+            if isinstance(frame_id, str) and frame_id:
+                vision_task = asyncio.create_task(
+                    vision_service.summarize_frame(session_id=session_id, turn_id=turn_id, frame_id=frame_id)
+                )
+            else:
+                vision_task = asyncio.create_task(vision_service.summarize_latest_frame(session_id, turn_id))
 
         chunks = session_store.consume_audio_chunks(session_id)
         if not chunks:
@@ -260,7 +266,14 @@ class AudioService:
                 except asyncio.TimeoutError:
                     vision_result = None
             else:
-                vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
+                if isinstance(frame_id, str) and frame_id:
+                    vision_result = await vision_service.summarize_frame(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        frame_id=frame_id,
+                    )
+                else:
+                    vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
             if vision_result is None:
                 await websocket.send_json(
                     {

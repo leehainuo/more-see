@@ -212,7 +212,7 @@ export function useVisualCapture({
       const element = mainVideoElementRef.current;
       if (!element || !isMainPreviewReady || element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         setVisionStatus("error", "当前没有可用的视频画面，本轮将仅返回语音识别结果。");
-        return false;
+        return null;
       }
 
       const width = element.videoWidth || 1280;
@@ -224,7 +224,7 @@ export function useVisualCapture({
       const context = canvas.getContext("2d");
       if (!context) {
         setVisionStatus("error", "浏览器无法创建画布上下文，本轮将仅返回语音识别结果。");
-        return false;
+        return null;
       }
 
       context.drawImage(element, 0, 0, width, height);
@@ -250,7 +250,7 @@ export function useVisualCapture({
         height,
         capturedAt,
       });
-      return true;
+      return frameId;
     },
     [addLocalKeyframe, isMainPreviewReady, sendFrameCapture, setVisionStatus],
   );

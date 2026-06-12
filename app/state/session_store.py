@@ -210,6 +210,15 @@ class SessionStore:
             return None
         return session.frames[-1]
 
+    def get_frame(self, session_id: str, frame_id: str) -> FrameSnapshot | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        for frame in reversed(session.frames):
+            if frame.frame_id == frame_id:
+                return frame
+        return None
+
     def save_turn(
         self,
         session_id: str,
