@@ -155,7 +155,7 @@ export default function Home() {
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">对话流</p>
                 <h2 className="font-['Oswald','Noto_Sans_SC',sans-serif] text-[clamp(1.4rem,2.7vw,2rem)] tracking-[0.08em]">
-                  语音采集、关键帧抓取与视觉摘要联调
+                  多模态会话编排与流式回复联调
                 </h2>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -295,12 +295,12 @@ export default function Home() {
                 ))}
               </div>
               <div className="min-w-0 flex-1">
-                <strong className="block text-sm text-white">阶段 3</strong>
-                <span className="text-sm text-slate-400">关键帧抓取、视觉摘要回传与语音识别联动</span>
+                <strong className="block text-sm text-white">阶段 4</strong>
+                <span className="text-sm text-slate-400">多模态上下文编排、流式回复与会话延续</span>
               </div>
               <Badge variant="muted">
                 <Activity className="mr-2 size-3.5" />
-                多模态联调中
+                流式回复联调中
               </Badge>
             </div>
           </CardContent>

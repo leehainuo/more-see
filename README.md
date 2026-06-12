@@ -7,6 +7,7 @@
 - 已完成 WebSocket 会话生命周期
 - 已接入麦克风采集、音频分段上报与 mock ASR 识别回传
 - 已接入摄像头预览、关键帧抓取与 mock 视觉摘要回传
+- 已接入多模态会话编排与 mock LLM 流式回复
 - 已提供黑白极简风格的 React 工作台、会话记录页和设置页骨架
 
 ## 技术栈
@@ -62,10 +63,12 @@ cd frontend && npm run check
 
 - `ASR_PROVIDER=mock`：默认启用 mock ASR，方便在无云端密钥环境下联调
 - `VISION_PROVIDER=mock`：默认启用 mock 视觉摘要，方便在无真实视觉模型时跑通关键帧链路
+- `LLM_PROVIDER=mock`：默认启用 mock LLM，方便在无真实文本模型时跑通流式回复链路
 - 后续接入真实阿里云或百度 ASR 时，可继续扩展对应适配器
 - 后续接入真实视觉模型时，可继续扩展 `QWEN_VL_API_KEY` 等配置
+- 后续接入真实文本模型时，可继续扩展 `DEEPSEEK_API_KEY` 等配置
 
 ## 下一步
-- 接入流式大模型回复与浏览器 TTS
+- 接入浏览器 TTS 与分句朗读
 - 接入屏幕共享与双视觉切换
 - 接入关键帧筛选优化与真实视觉模型

@@ -43,12 +43,12 @@ const initialMessages: ChatMessage[] = [
   {
     id: "initial-assistant",
     role: "assistant",
-    content: "当前分支正在接入关键帧抓取、视觉摘要回传，并保留语音采集与 ASR 联调链路。",
+    content: "当前分支正在接入多模态会话编排、流式回复，并保留关键帧与 ASR 输入链路。",
   },
   {
     id: "initial-user",
     role: "user",
-    content: "点击“开始会话”后，可打开视觉联动并在录音结束时自动抓取关键帧，随后同时查看 ASR 与视觉摘要结果。",
+    content: "点击“开始会话”并完成一轮录音后，页面会依次展示 transcript、视觉摘要和流式 AI 回复。",
   },
 ];
 
@@ -171,7 +171,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
         case "asr.result":
           return {
-            sessionStatus: "ready",
+            sessionStatus: "transcribing",
             recordedChunks: 0,
             inputLevel: 0,
             messages: [
@@ -268,10 +268,12 @@ export const useSessionStore = create<SessionState>((set) => ({
                   streaming: false,
                 },
               ],
+              systemMessage: "AI 已完成本轮多模态回复，可以继续下一轮提问。",
             };
           }
           return {
             sessionStatus: "ready",
+            systemMessage: "AI 已完成本轮多模态回复，可以继续下一轮提问。",
           };
         }
 

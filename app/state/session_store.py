@@ -29,12 +29,23 @@ class FrameSnapshot:
 
 
 @dataclass
+class TurnRecord:
+    turn_id: str
+    user_text: str
+    assistant_text: str = ""
+    vision_summary: str | None = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
 class SessionState:
     session_id: str
     input_source: str
     device_info: dict[str, str | None] = field(default_factory=dict)
     audio_chunks: list[AudioChunk] = field(default_factory=list)
     frames: list[FrameSnapshot] = field(default_factory=list)
+    turns: list[TurnRecord] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -128,6 +139,53 @@ class SessionStore:
         if session is None or not session.frames:
             return None
         return session.frames[-1]
+
+    def save_turn(
+        self,
+        session_id: str,
+        turn_id: str,
+        user_text: str,
+        vision_summary: str | None = None,
+    ) -> TurnRecord | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+
+        existing_turn = next((turn for turn in session.turns if turn.turn_id == turn_id), None)
+        if existing_turn is not None:
+            existing_turn.user_text = user_text
+            existing_turn.vision_summary = vision_summary
+            existing_turn.updated_at = utc_now_iso()
+            return existing_turn
+
+        turn = TurnRecord(
+            turn_id=turn_id,
+            user_text=user_text,
+            vision_summary=vision_summary,
+        )
+        session.turns.append(turn)
+        return turn
+
+    def complete_turn(self, session_id: str, turn_id: str, assistant_text: str) -> TurnRecord | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+
+        turn = next((item for item in session.turns if item.turn_id == turn_id), None)
+        if turn is None:
+            return None
+
+        turn.assistant_text = assistant_text
+        turn.updated_at = utc_now_iso()
+        return turn
+
+    def get_recent_turns(self, session_id: str, limit: int = 3) -> list[TurnRecord]:
+        session = self.touch_session(session_id)
+        if session is None:
+            return []
+        if limit <= 0:
+            return []
+        return list(session.turns[-limit:])
 
     def remove_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
