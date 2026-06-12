@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Play, Power, RefreshCw, Radio } from "lucide-react";
+import { Activity, Mic, Pause, Play, Power, RefreshCw, Radio } from "lucide-react";
 
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { AppShell } from "@/components/AppShell";
@@ -16,8 +16,19 @@ export default function Home() {
   const messages = useSessionStore((state) => state.messages);
   const systemMessage = useSessionStore((state) => state.systemMessage);
   const resetMessages = useSessionStore((state) => state.resetMessages);
-  const { connectionStatus, sessionId, sessionStatus, reconnect, startSession, closeSession } =
-    useSessionLifecycle();
+  const {
+    connectionStatus,
+    sessionId,
+    sessionStatus,
+    inputLevel,
+    recordedChunks,
+    isCapturing,
+    reconnect,
+    startSession,
+    closeSession,
+    startCapture,
+    stopCapture,
+  } = useSessionLifecycle();
 
   const lifecycleBadge = useMemo(() => {
     if (connectionStatus === "connecting") {
@@ -79,7 +90,7 @@ export default function Home() {
                 <div className="max-w-xl rounded-[1.25rem] border border-white/10 bg-black/30 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur">
                   <p className="text-lg text-slate-100">这里将承载摄像头预览、屏幕共享和注意力框。</p>
                   <p className="mt-3 text-sm text-slate-400">
-                    当前阶段已进入 WebSocket 会话主链路开发，页面会展示连接状态、会话状态和模拟流式回复。
+                    当前阶段已进入语音采集与 ASR 联调，页面会展示录音状态、静音自动提交和识别结果。
                   </p>
                 </div>
               </div>
@@ -97,7 +108,7 @@ export default function Home() {
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">对话流</p>
                 <h2 className="font-['Oswald','Noto_Sans_SC',sans-serif] text-[clamp(1.4rem,2.7vw,2rem)] tracking-[0.08em]">
-                  WebSocket 生命周期与假流式回复联调
+                  麦克风采集、静音自动提交与 ASR 联调
                 </h2>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -118,6 +129,14 @@ export default function Home() {
                   <Play className="mr-2 size-4" />
                   开始会话
                 </Button>
+                <Button
+                  variant={isCapturing ? "secondary" : "default"}
+                  onClick={() => void (isCapturing ? stopCapture() : startCapture())}
+                  disabled={!sessionId || sessionStatus === "transcribing"}
+                >
+                  {isCapturing ? <Pause className="mr-2 size-4" /> : <Mic className="mr-2 size-4" />}
+                  {isCapturing ? "结束录音" : "开始录音"}
+                </Button>
                 <Button variant="secondary" onClick={closeSession} disabled={!sessionId}>
                   <Power className="mr-2 size-4" />
                   结束会话
@@ -136,8 +155,39 @@ export default function Home() {
                   <p className="mt-2 text-slate-100">{sessionStatus}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                  <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">音频分段</span>
+                  <p className="mt-2 text-slate-100">{recordedChunks} 段</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
                   <span className="text-[11px] uppercase tracking-[0.24em] text-slate-500">会话 ID</span>
                   <p className="mt-2 break-all text-slate-100">{sessionId ?? "尚未创建"}</p>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 px-4 py-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="text-[11px] uppercase tracking-[0.24em] text-slate-400">聆听波形</span>
+                  <span className="text-xs text-slate-400">
+                    {isCapturing ? "录音中，静音 1.5 秒自动提交" : "点击开始录音后进入监听"}
+                  </span>
+                </div>
+                <div className="flex h-10 items-end gap-1.5" aria-hidden="true">
+                  {Array.from({ length: 12 }).map((_, index) => {
+                    const base = 10 + ((index % 4) + 1) * 4;
+                    const height = Math.round(base + inputLevel * 28);
+                    return (
+                      <span
+                        key={`meter-${index}`}
+                        className={`block w-2 rounded-full ${
+                          isCapturing ? "bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.45)]" : "bg-white/20"
+                        }`}
+                        style={{
+                          height: `${height}px`,
+                          opacity: isCapturing ? 0.55 + inputLevel * 0.45 : 0.35,
+                          transition: "height 120ms ease, opacity 120ms ease",
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -184,12 +234,12 @@ export default function Home() {
                 ))}
               </div>
               <div className="min-w-0 flex-1">
-                <strong className="block text-sm text-white">阶段 1</strong>
-                <span className="text-sm text-slate-400">WebSocket 会话生命周期、连接状态与假流式回复</span>
+                <strong className="block text-sm text-white">阶段 2</strong>
+                <span className="text-sm text-slate-400">麦克风采集、静音自动提交与 ASR 识别回传</span>
               </div>
               <Badge variant="muted">
                 <Activity className="mr-2 size-3.5" />
-                会话事件联调中
+                语音识别联调中
               </Badge>
             </div>
           </CardContent>

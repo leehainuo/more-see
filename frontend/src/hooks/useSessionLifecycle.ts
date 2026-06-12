@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 
+import { useVoiceCapture } from "@/hooks/useVoiceCapture";
 import { SessionWebSocketClient } from "@/lib/ws-client";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -46,8 +47,39 @@ export function useSessionLifecycle() {
     };
   }, [client, connectionStatus, sessionId]);
 
+  const sendAudioChunk = (payload: {
+    sessionId: string;
+    chunkId: string;
+    mimeType: string;
+    base64Audio: string;
+    durationMs: number;
+  }) => {
+    client.send({
+      type: "audio.chunk",
+      ...payload,
+    });
+  };
+
+  const commitTurn = (payload: {
+    sessionId: string;
+    turnId: string;
+    silenceMs: number;
+    includeVision: boolean;
+  }) => {
+    client.send({
+      type: "turn.commit",
+      ...payload,
+    });
+  };
+
+  const { inputLevel, recordedChunks, isCapturing, startCapture, stopCapture } = useVoiceCapture({
+    sessionId,
+    sendAudioChunk,
+    commitTurn,
+  });
+
   const startSession = () => {
-    appendUserMessage("开始一次会话联调，验证 session.start 和流式回复。");
+    appendUserMessage("开始一次语音会话联调，准备录音并验证静音自动提交。");
     client.send({
       type: "session.start",
       inputSource: "camera",
@@ -77,8 +109,13 @@ export function useSessionLifecycle() {
     connectionStatus,
     sessionStatus,
     sessionId,
+    inputLevel,
+    recordedChunks,
+    isCapturing,
     reconnect,
     startSession,
     closeSession,
+    startCapture,
+    stopCapture,
   };
 }

@@ -3,15 +3,19 @@ import { create } from "zustand";
 import type { ChatMessage, ServerEvent } from "@/lib/ws-types";
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "closed";
-type SessionStatus = "idle" | "ready" | "streaming" | "closed" | "error";
+type SessionStatus = "idle" | "ready" | "recording" | "transcribing" | "streaming" | "closed" | "error";
 
 type SessionState = {
   connectionStatus: ConnectionStatus;
   sessionStatus: SessionStatus;
   sessionId: string | null;
   systemMessage: string;
+  inputLevel: number;
+  recordedChunks: number;
   messages: ChatMessage[];
   setConnectionStatus: (status: ConnectionStatus) => void;
+  setRecordingState: (status: "recording" | "transcribing" | "ready", level?: number) => void;
+  setRecordedChunks: (count: number) => void;
   resetMessages: () => void;
   appendUserMessage: (content: string) => void;
   handleServerEvent: (event: ServerEvent) => void;
@@ -21,12 +25,12 @@ const initialMessages: ChatMessage[] = [
   {
     id: "initial-assistant",
     role: "assistant",
-    content: "当前分支正在接入 WebSocket 会话生命周期，下面的消息会由后端实时推送。",
+    content: "当前分支正在接入麦克风采集、静音自动提交和 ASR 识别链路。",
   },
   {
     id: "initial-user",
     role: "user",
-    content: "点击“开始会话”后，将触发 session.start 并演示假流式回复。",
+    content: "点击“开始会话”后，再点击“开始录音”，静音 1.5 秒后会自动提交识别。",
   },
 ];
 
@@ -35,6 +39,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   sessionStatus: "idle",
   sessionId: null,
   systemMessage: "等待连接 WebSocket 通道。",
+  inputLevel: 0,
+  recordedChunks: 0,
   messages: initialMessages,
 
   setConnectionStatus: (status) => {
@@ -51,12 +57,33 @@ export const useSessionStore = create<SessionState>((set) => ({
     });
   },
 
+  setRecordingState: (status, level = 0) => {
+    set((state) => ({
+      sessionStatus: status,
+      inputLevel: level,
+      systemMessage:
+        status === "recording"
+          ? "正在监听你的语音输入，静音 1.5 秒后自动提交。"
+          : status === "transcribing"
+            ? "语音已提交，正在等待 ASR 识别结果。"
+            : state.systemMessage,
+    }));
+  },
+
+  setRecordedChunks: (count) => {
+    set({
+      recordedChunks: count,
+    });
+  },
+
   resetMessages: () => {
     set({
       messages: initialMessages,
       sessionStatus: "idle",
       sessionId: null,
       systemMessage: "等待连接 WebSocket 通道。",
+      inputLevel: 0,
+      recordedChunks: 0,
     });
   },
 
@@ -91,6 +118,22 @@ export const useSessionStore = create<SessionState>((set) => ({
         case "session.status":
           return {
             systemMessage: event.message,
+          };
+
+        case "asr.result":
+          return {
+            sessionStatus: "ready",
+            recordedChunks: 0,
+            inputLevel: 0,
+            messages: [
+              ...state.messages,
+              {
+                id: crypto.randomUUID(),
+                role: "user",
+                content: event.transcript,
+              },
+            ],
+            systemMessage: `已完成 ${event.chunkCount} 段音频识别，识别来源为 ${event.provider}。`,
           };
 
         case "session.pong":
@@ -151,6 +194,8 @@ export const useSessionStore = create<SessionState>((set) => ({
           return {
             sessionStatus: "closed",
             sessionId: null,
+            inputLevel: 0,
+            recordedChunks: 0,
             systemMessage: "会话已关闭，可以重新开始。",
           };
 

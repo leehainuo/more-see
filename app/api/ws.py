@@ -2,6 +2,7 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.services.audio_service import audio_service
 from app.services.session_service import session_service
 
 router = APIRouter()
@@ -31,6 +32,10 @@ async def session_ws(websocket: WebSocket) -> None:
 
             if event_type == "session.start":
                 await session_service.handle_session_start(websocket, data)
+            elif event_type == "audio.chunk":
+                await audio_service.handle_audio_chunk(websocket, data)
+            elif event_type == "turn.commit":
+                await audio_service.handle_turn_commit(websocket, data)
             elif event_type == "session.ping":
                 await session_service.handle_ping(websocket, data)
             elif event_type == "session.end":

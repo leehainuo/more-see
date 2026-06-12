@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 from fastapi import WebSocket
@@ -42,10 +41,9 @@ class SessionService:
                 "type": "session.status",
                 "sessionId": session.session_id,
                 "level": "info",
-                "message": "模拟流式回答即将开始，用于联调对话区。",
+                "message": "会话已开始，请对着麦克风说话，静音 1.5 秒后将自动提交识别。",
             }
         )
-        await self.stream_mock_reply(websocket, session.session_id)
         return session.session_id
 
     async def handle_ping(self, websocket: WebSocket, payload: dict) -> None:
@@ -79,33 +77,5 @@ class SessionService:
                 "message": "Session closed.",
             }
         )
-
-    async def stream_mock_reply(self, websocket: WebSocket, session_id: str) -> None:
-        chunks = [
-            "你好，我已经完成 WebSocket 会话初始化。",
-            "下一步可以在这个通道上接入语音分段、关键帧抓取和多模态上下文。",
-            "当前回复为模拟流式输出，用于验证前端消息渲染与连接状态。",
-        ]
-
-        full_text = ""
-        for chunk in chunks:
-            await asyncio.sleep(0.18)
-            full_text += chunk
-            await websocket.send_json(
-                {
-                    "type": "llm.delta",
-                    "sessionId": session_id,
-                    "text": chunk,
-                }
-            )
-
-        await websocket.send_json(
-            {
-                "type": "llm.done",
-                "sessionId": session_id,
-                "fullText": full_text,
-            }
-        )
-
 
 session_service = SessionService()
