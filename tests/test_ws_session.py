@@ -10,10 +10,6 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def force_fallback_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "volcengine_speech_api_key", "")
-    monkeypatch.setattr(settings, "volcengine_asr_app_id", "")
-    monkeypatch.setattr(settings, "volcengine_asr_access_token", "")
-    monkeypatch.setattr(settings, "volcengine_tts_app_id", "")
-    monkeypatch.setattr(settings, "volcengine_tts_access_token", "")
     monkeypatch.setattr(settings, "ark_api_key", "")
 
 

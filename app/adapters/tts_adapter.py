@@ -24,13 +24,9 @@ class TtsAdapter:
                     "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
                     "X-Control-Require-Usage-Tokens-Return": "text_words",
                 }
-                if settings.volcengine_speech_api_key:
-                    headers["X-Api-Key"] = settings.volcengine_speech_api_key
-                elif settings.volcengine_tts_app_id and settings.volcengine_tts_access_token:
-                    headers["X-Api-App-Id"] = settings.volcengine_tts_app_id
-                    headers["X-Api-Access-Key"] = settings.volcengine_tts_access_token
-                else:
+                if not settings.volcengine_speech_api_key:
                     raise ValueError("missing_volcengine_tts_credentials")
+                headers["X-Api-Key"] = settings.volcengine_speech_api_key
 
                 audio_chunks: list[bytes] = []
                 async with httpx.AsyncClient(timeout=45.0) as client:

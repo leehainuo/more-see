@@ -10,8 +10,6 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def force_tts_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "volcengine_speech_api_key", "")
-    monkeypatch.setattr(settings, "volcengine_tts_app_id", "")
-    monkeypatch.setattr(settings, "volcengine_tts_access_token", "")
 
 
 def test_healthz() -> None:

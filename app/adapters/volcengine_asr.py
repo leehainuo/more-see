@@ -125,24 +125,15 @@ class VolcengineAsrClient:
         if not chunks:
             raise ValueError("没有可供识别的音频分段。")
 
-        if settings.volcengine_speech_api_key:
-            headers = {
-                "X-Api-Key": settings.volcengine_speech_api_key,
-                "X-Api-Resource-Id": settings.volcengine_asr_resource_id,
-                "X-Api-Connect-Id": str(uuid4()),
-            }
-        elif settings.volcengine_asr_app_id and settings.volcengine_asr_access_token:
-            headers = {
-                "X-Api-App-Key": settings.volcengine_asr_app_id,
-                "X-Api-Access-Key": settings.volcengine_asr_access_token,
-                "X-Api-Resource-Id": settings.volcengine_asr_resource_id,
-                "X-Api-Connect-Id": str(uuid4()),
-            }
-        else:
+        if not settings.volcengine_speech_api_key:
             raise ValueError(
-                "火山 ASR 缺少鉴权配置，请设置 `VOLCENGINE_SPEECH_API_KEY` 或"
-                " `VOLCENGINE_ASR_APP_ID` + `VOLCENGINE_ASR_ACCESS_TOKEN`。"
+                "火山 ASR 缺少鉴权配置，请设置 `VOLCENGINE_SPEECH_API_KEY`。"
             )
+        headers = {
+            "X-Api-Key": settings.volcengine_speech_api_key,
+            "X-Api-Resource-Id": settings.volcengine_asr_resource_id,
+            "X-Api-Connect-Id": str(uuid4()),
+        }
 
         audio_config = resolve_audio_config(chunks[0].mime_type)
         request_payload = {

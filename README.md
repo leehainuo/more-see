@@ -65,10 +65,8 @@ cd frontend && npm run check
 - `VISION_PROVIDER=volcengine`：默认通过火山方舟视觉模型返回关键帧摘要
 - `LLM_PROVIDER=volcengine`：默认通过火山方舟文本模型生成流式回复
 - `TTS_PROVIDER=volcengine`：默认通过豆包语音合成接口返回播放音频
-- `VOLCENGINE_SPEECH_API_KEY`：豆包语音统一 API Key，优先用于火山 ASR / TTS 鉴权
-- `VOLCENGINE_TTS_APP_ID / VOLCENGINE_TTS_ACCESS_TOKEN`：火山 TTS 旧版鉴权配置，未设置统一 API Key 时可继续兼容
+- `VOLCENGINE_SPEECH_API_KEY`：豆包语音统一 API Key，用于火山 ASR / TTS 鉴权
 - `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
-- `VOLCENGINE_ASR_APP_ID / VOLCENGINE_ASR_ACCESS_TOKEN`：火山 ASR 旧版鉴权配置，未设置统一 API Key 时可继续兼容
 - `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`：火山流式 ASR 资源与语言配置
 - `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
@@ -78,11 +76,11 @@ cd frontend && npm run check
 - `POST /api/tts/synthesize`
 - 请求体：`{"text":"你好，欢迎使用 More See"}`
 - 返回：`audioBase64`、`mimeType`、`provider`、`textLength`
-- 当 `TTS_PROVIDER=volcengine` 时，后端会调用火山引擎语音合成接口；未配置密钥或请求失败时会自动回退到本地兜底音频
+- 当 `TTS_PROVIDER=volcengine` 时，后端会使用 `VOLCENGINE_SPEECH_API_KEY` 调用火山引擎语音合成接口；未配置密钥或请求失败时会自动回退到本地兜底音频
 
 ## 火山模型接入
 - 当 `ASR_PROVIDER=volcengine` 时，前端会直接上报 `16k PCM` 音频分片，后端通过豆包流式语音识别接口完成转写
-- 当 `TTS_PROVIDER=volcengine` 时，后端会优先使用 `VOLCENGINE_SPEECH_API_KEY` 调用豆包语音合成；未设置时回退到旧版 AppId/AccessKey 鉴权
+- 当 `TTS_PROVIDER=volcengine` 时，后端会使用 `VOLCENGINE_SPEECH_API_KEY` 调用豆包语音合成
 - 当 `LLM_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟 OpenAI 兼容接口并调用 `ARK_LLM_MODEL`
 - 当 `VISION_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟多模态对话接口并调用 `ARK_VISION_MODEL`
 - 多轮上下文组装交由 `LangGraph` 处理，避免会话编排逻辑继续散落在服务层与适配层
