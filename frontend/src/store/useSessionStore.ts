@@ -164,16 +164,14 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   markAssistantAudioPlaybackComplete: () => {
     set((state) => ({
-      sessionStatus: state.sessionStatus === "streaming" ? "ready" : state.sessionStatus,
+      sessionStatus: state.sessionStatus === "closed" || state.sessionStatus === "error" ? state.sessionStatus : "ready",
       assistantAudioStatus: "idle",
       systemMessage:
         state.sessionStatus === "closed"
           ? state.systemMessage
           : state.sessionStatus === "error"
             ? state.systemMessage
-          : state.sessionStatus === "streaming"
-            ? "AI 语音播报完成，通话保持持续监听。"
-            : state.systemMessage,
+            : "AI 语音播报完成，通话保持持续监听。",
     }));
   },
 
@@ -314,6 +312,9 @@ export const useSessionStore = create<SessionState>((set) => ({
         }
 
         case "tts.start":
+          if (state.sessionStatus === "closed" || state.sessionStatus === "error") {
+            return state;
+          }
           return {
             sessionStatus: state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
             assistantAudioStatus: "speaking",
@@ -324,8 +325,11 @@ export const useSessionStore = create<SessionState>((set) => ({
           };
 
         case "tts.done":
+          if (state.sessionStatus === "closed" || state.sessionStatus === "error") {
+            return state;
+          }
           return {
-            sessionStatus: state.sessionStatus === "streaming" || state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
+            sessionStatus: state.sessionStatus === "ready" ? "streaming" : state.sessionStatus,
             assistantAudioStatus: "speaking",
             systemMessage:
               state.sessionStatus === "streaming" || state.sessionStatus === "ready"
@@ -334,6 +338,9 @@ export const useSessionStore = create<SessionState>((set) => ({
           };
 
         case "assistant.interrupted":
+          if (state.sessionStatus === "closed" || state.sessionStatus === "error") {
+            return state;
+          }
           return {
             assistantAudioStatus: "idle",
             sessionStatus: state.sessionStatus === "streaming" ? "ready" : state.sessionStatus,
