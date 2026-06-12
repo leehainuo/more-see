@@ -69,9 +69,6 @@ cd frontend && npm run check
 - `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
 - `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
-- 后续接入真实阿里云或百度 ASR 时，可继续扩展对应适配器
-- 后续接入真实视觉模型时，可继续扩展 `QWEN_VL_API_KEY` 等配置
-- 后续接入真实文本模型时，可继续扩展 `DEEPSEEK_API_KEY` 等配置
 
 ## TTS 接口
 - `POST /api/tts/synthesize`
@@ -80,8 +77,9 @@ cd frontend && npm run check
 - 当 `TTS_PROVIDER=volcengine` 时，后端会调用火山引擎语音合成接口；未配置密钥时可先使用 mock 模式联调
 
 ## 火山模型接入
-- 当 `LLM_PROVIDER=volcengine` 时，后端会通过方舟 OpenAI 兼容接口调用 `ARK_LLM_MODEL`
-- 当 `VISION_PROVIDER=volcengine` 时，后端会通过方舟多模态对话接口调用 `ARK_VISION_MODEL`
+- 当 `LLM_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟 OpenAI 兼容接口并调用 `ARK_LLM_MODEL`
+- 当 `VISION_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟多模态对话接口并调用 `ARK_VISION_MODEL`
+- 多轮上下文组装交由 `LangGraph` 处理，避免会话编排逻辑继续散落在服务层与适配层
 - 当前仍保留 mock 提供商，便于在缺少火山密钥或模型开通权限时独立联调页面
 
 ## 下一步
