@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     tts_provider: str = "volcengine"
     volcengine_speech_api_key: str = ""
     volcengine_tts_resource_id: str = "seed-tts-2.0"
-    volcengine_tts_speaker: str = "zh_female_shuangkuaisisi_moon_bigtts"
+    volcengine_tts_speaker: str = "zh_female_vv_uranus_bigtts"
     volcengine_tts_format: str = "mp3"
     volcengine_tts_sample_rate: int = 24000
     volcengine_asr_resource_id: str = "volc.seedasr.sauc.duration"

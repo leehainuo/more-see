@@ -36,7 +36,7 @@ def test_build_ssl_context_uses_certifi_by_default(monkeypatch: pytest.MonkeyPat
     recorded: dict[str, str] = {}
     original = ssl.create_default_context
 
-    def fake_create_default_context(*, cafile=None, capath=None, cadata=None):
+    def fake_create_default_context(*, cafile=None, _capath=None, _cadata=None):
         recorded["cafile"] = cafile
         return original()
 
@@ -97,7 +97,7 @@ async def test_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None
 
     captured: dict[str, object] = {}
 
-    def fake_connect(*args, **kwargs) -> FakeWebSocket:
+    def fake_connect(*_args, **kwargs) -> FakeWebSocket:
         captured.update(kwargs)
         return fake_socket
 
@@ -112,10 +112,16 @@ async def test_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None
 
     start_connection = volcengine_tts_ws._decode_frame(fake_socket.sent_frames[0])
     assert start_connection.event_type == 1
+    assert json.loads(start_connection.payload) == {}
 
     start_session = volcengine_tts_ws._decode_frame(fake_socket.sent_frames[1])
     assert start_session.event_type == 100
     assert start_session.session_id == session_id
+    assert json.loads(start_session.payload)["req_params"]["speaker"] == "test-speaker"
+    assert (
+        json.loads(start_session.payload)["req_params"]["additions"]
+        == "{\"disable_markdown_filter\": true}"
+    )
 
     task_request = volcengine_tts_ws._decode_frame(fake_socket.sent_frames[2])
     assert task_request.event_type == 200
@@ -125,10 +131,15 @@ async def test_synthesize_via_websocket(monkeypatch: pytest.MonkeyPatch) -> None
     finish_session = volcengine_tts_ws._decode_frame(fake_socket.sent_frames[3])
     assert finish_session.event_type == 102
     assert finish_session.session_id == session_id
+    assert json.loads(finish_session.payload) == {}
 
     finish_connection = volcengine_tts_ws._decode_frame(fake_socket.sent_frames[4])
     assert finish_connection.event_type == 2
+    assert json.loads(finish_connection.payload) == {}
     assert isinstance(captured["ssl"], ssl.SSLContext)
+    assert captured["additional_headers"]["X-Api-Key"] == "speech-key"
+    assert captured["additional_headers"]["X-Api-Resource-Id"] == "seed-tts-2.0"
+    assert captured["additional_headers"]["X-Control-Require-Usage-Tokens-Return"] == "*"
 
 
 @pytest.mark.asyncio

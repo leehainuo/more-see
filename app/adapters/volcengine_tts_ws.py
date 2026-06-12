@@ -9,6 +9,7 @@ import websockets
 
 from app.config import settings
 from app.utils.ssl_context import build_volcengine_ssl_context
+from app.utils.volcengine_speech import build_speech_ws_headers
 
 _WS_TTS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
 
@@ -41,6 +42,10 @@ class _VolcengineWsMessage:
     connect_id: str | None
     payload: bytes
     error_code: int | None = None
+
+
+def _encode_json_payload(payload: dict[str, object] | None = None) -> bytes:
+    return json.dumps(payload or {}, ensure_ascii=False).encode("utf-8")
 
 
 def _encode_event_frame(
@@ -168,16 +173,35 @@ async def _wait_for_event(
 
 def _build_session_request() -> dict[str, object]:
     return {
+        "user": {
+            "uid": "more-see-demo",
+        },
         "req_params": {
             "speaker": settings.volcengine_tts_speaker,
             "audio_params": {
                 "format": settings.volcengine_tts_format,
                 "sample_rate": settings.volcengine_tts_sample_rate,
             },
-            "additions": {
-                "disable_markdown_filter": True,
-            },
+            # Avoid sending nested objects directly here. The upstream V3 protocol
+            # expects `additions` to be an escaped JSON string.
+            "additions": json.dumps(
+                {
+                    "disable_markdown_filter": True,
+                },
+                ensure_ascii=False,
+            ),
         }
+    }
+
+
+def _build_task_request(text: str) -> dict[str, object]:
+    return {
+        "user": {
+            "uid": "more-see-demo",
+        },
+        "req_params": {
+            "text": text,
+        },
     }
 
 
@@ -187,12 +211,11 @@ async def synthesize_via_websocket(text: str) -> bytes:
 
     connect_id = str(uuid4())
     session_id = str(uuid4())
-    headers = {
-        "X-Api-Key": settings.volcengine_speech_api_key,
-        "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
-        "X-Api-Connect-Id": connect_id,
-        "X-Control-Require-Usage-Tokens-Return": "*",
-    }
+    headers = build_speech_ws_headers(
+        resource_id=settings.volcengine_tts_resource_id,
+        connect_id=connect_id,
+        include_usage_tokens_return=True,
+    )
 
     async with websockets.connect(
         _WS_TTS_URL,
@@ -200,18 +223,22 @@ async def synthesize_via_websocket(text: str) -> bytes:
         max_size=10 * 1024 * 1024,
         ssl=build_volcengine_ssl_context(),
     ) as websocket:
-        await websocket.send(_encode_event_frame(_EVENT_START_CONNECTION))
+        await websocket.send(
+            _encode_event_frame(
+                _EVENT_START_CONNECTION,
+                _encode_json_payload(),
+            )
+        )
         await _wait_for_event(
             websocket,
             msg_type=_MSG_TYPE_FULL_SERVER_RESPONSE,
             event_type=_EVENT_CONNECTION_STARTED,
         )
 
-        session_request = json.dumps(_build_session_request()).encode("utf-8")
         await websocket.send(
             _encode_event_frame(
                 _EVENT_START_SESSION,
-                session_request,
+                _encode_json_payload(_build_session_request()),
                 session_id=session_id,
             )
         )
@@ -222,18 +249,17 @@ async def synthesize_via_websocket(text: str) -> bytes:
             session_id=session_id,
         )
 
-        task_request = _build_session_request()
-        task_request["req_params"]["text"] = text
         await websocket.send(
             _encode_event_frame(
                 _EVENT_TASK_REQUEST,
-                json.dumps(task_request).encode("utf-8"),
+                _encode_json_payload(_build_task_request(text)),
                 session_id=session_id,
             )
         )
         await websocket.send(
             _encode_event_frame(
                 _EVENT_FINISH_SESSION,
+                _encode_json_payload(),
                 session_id=session_id,
             )
         )
@@ -259,7 +285,12 @@ async def synthesize_via_websocket(text: str) -> bytes:
             ):
                 break
 
-        await websocket.send(_encode_event_frame(_EVENT_FINISH_CONNECTION))
+        await websocket.send(
+            _encode_event_frame(
+                _EVENT_FINISH_CONNECTION,
+                _encode_json_payload(),
+            )
+        )
         await _wait_for_event(
             websocket,
             msg_type=_MSG_TYPE_FULL_SERVER_RESPONSE,
