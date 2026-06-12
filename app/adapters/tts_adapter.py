@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import math
 import wave
-from uuid import uuid4
-
-import httpx
 
 from app.config import settings
+from app.adapters.volcengine_tts_ws import synthesize_via_websocket
 
 
 class TtsAdapter:
@@ -20,49 +17,7 @@ class TtsAdapter:
 
         if settings.tts_provider == "volcengine":
             try:
-                headers = {
-                    "X-Api-Resource-Id": settings.volcengine_tts_resource_id,
-                    "X-Control-Require-Usage-Tokens-Return": "text_words",
-                }
-                if not settings.volcengine_speech_api_key:
-                    raise ValueError("missing_volcengine_tts_credentials")
-                headers["X-Api-Key"] = settings.volcengine_speech_api_key
-
-                audio_chunks: list[bytes] = []
-                async with httpx.AsyncClient(timeout=45.0) as client:
-                    async with client.stream(
-                        "POST",
-                        "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
-                        headers=headers,
-                        json={
-                            "user": {
-                                "uid": "more-see-demo",
-                            },
-                            "req_params": {
-                                "text": cleaned_text,
-                                "speaker": settings.volcengine_tts_speaker,
-                                "audio_params": {
-                                    "format": settings.volcengine_tts_format,
-                                    "sample_rate": settings.volcengine_tts_sample_rate,
-                                },
-                                "additions": {
-                                    "reqid": str(uuid4()),
-                                },
-                            },
-                        },
-                    ) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            payload = line.strip()
-                            if not payload:
-                                continue
-                            event = json.loads(payload)
-                            if event.get("data"):
-                                audio_chunks.append(base64.b64decode(event["data"]))
-                            if event.get("code") == 20000000:
-                                break
-
-                audio_bytes = b"".join(audio_chunks)
+                audio_bytes = await synthesize_via_websocket(cleaned_text)
                 if audio_bytes:
                     return {
                         "audioBase64": base64.b64encode(audio_bytes).decode("utf-8"),
