@@ -215,8 +215,12 @@ export function useVisualCapture({
         return false;
       }
 
-      const width = element.videoWidth || 1280;
-      const height = element.videoHeight || 720;
+      const rawWidth = element.videoWidth || 1280;
+      const rawHeight = element.videoHeight || 720;
+      const maxWidth = payload.inputSource === "screen" ? 960 : 720;
+      const scale = Math.min(1, maxWidth / rawWidth);
+      const width = Math.max(1, Math.round(rawWidth * scale));
+      const height = Math.max(1, Math.round(rawHeight * scale));
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
