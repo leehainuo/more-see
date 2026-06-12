@@ -4,6 +4,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.audio_service import audio_service
 from app.services.session_service import session_service
+from app.services.vision_service import vision_service
 
 router = APIRouter()
 
@@ -34,6 +35,8 @@ async def session_ws(websocket: WebSocket) -> None:
                 await session_service.handle_session_start(websocket, data)
             elif event_type == "audio.chunk":
                 await audio_service.handle_audio_chunk(websocket, data)
+            elif event_type == "frame.capture":
+                await vision_service.handle_frame_capture(websocket, data)
             elif event_type == "turn.commit":
                 await audio_service.handle_turn_commit(websocket, data)
             elif event_type == "session.ping":

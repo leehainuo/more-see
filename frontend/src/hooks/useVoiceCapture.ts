@@ -4,6 +4,8 @@ import { useSessionStore } from "@/store/useSessionStore";
 
 type VoiceCaptureOptions = {
   sessionId: string | null;
+  inputSource: "camera" | "screen";
+  visionEnabled: boolean;
   sendAudioChunk: (payload: {
     sessionId: string;
     chunkId: string;
@@ -12,6 +14,7 @@ type VoiceCaptureOptions = {
     durationMs: number;
   }) => void;
   commitTurn: (payload: { sessionId: string; turnId: string; silenceMs: number; includeVision: boolean }) => void;
+  captureFrameForTurn: (payload: { sessionId: string; inputSource: "camera" | "screen" }) => Promise<boolean>;
 };
 
 const SILENCE_THRESHOLD = 0.02;
@@ -27,7 +30,14 @@ async function blobToBase64(blob: Blob) {
   return window.btoa(binary);
 }
 
-export function useVoiceCapture({ sessionId, sendAudioChunk, commitTurn }: VoiceCaptureOptions) {
+export function useVoiceCapture({
+  sessionId,
+  inputSource,
+  visionEnabled,
+  sendAudioChunk,
+  commitTurn,
+  captureFrameForTurn,
+}: VoiceCaptureOptions) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -164,12 +174,21 @@ export function useVoiceCapture({ sessionId, sendAudioChunk, commitTurn }: Voice
         if (!sessionId) {
           return;
         }
-        commitTurn({
-          sessionId,
-          turnId: crypto.randomUUID(),
-          silenceMs: AUTO_COMMIT_MS,
-          includeVision: false,
-        });
+        void (async () => {
+          const turnId = crypto.randomUUID();
+          const includeVision =
+            visionEnabled &&
+            (await captureFrameForTurn({
+              sessionId,
+              inputSource,
+            }));
+          commitTurn({
+            sessionId,
+            turnId,
+            silenceMs: AUTO_COMMIT_MS,
+            includeVision,
+          });
+        })();
       };
 
       mediaRecorder.start(900);
@@ -185,12 +204,15 @@ export function useVoiceCapture({ sessionId, sendAudioChunk, commitTurn }: Voice
     }
   }, [
     commitTurn,
+    captureFrameForTurn,
+    inputSource,
     isCapturing,
     monitorVolume,
     sendAudioChunk,
     sessionId,
     setRecordedChunks,
     setRecordingState,
+    visionEnabled,
   ]);
 
   useEffect(() => {

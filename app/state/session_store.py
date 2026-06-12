@@ -18,11 +18,23 @@ class AudioChunk:
 
 
 @dataclass
+class FrameSnapshot:
+    frame_id: str
+    input_source: str
+    image_base64: str
+    width: int
+    height: int
+    captured_at: str
+    stored_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
 class SessionState:
     session_id: str
     input_source: str
     device_info: dict[str, str | None] = field(default_factory=dict)
     audio_chunks: list[AudioChunk] = field(default_factory=list)
+    frames: list[FrameSnapshot] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -30,6 +42,7 @@ class SessionState:
 class SessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, SessionState] = {}
+        self._max_frames_per_session = 6
 
     def create_session(
         self,
@@ -82,6 +95,39 @@ class SessionStore:
         chunks = list(session.audio_chunks)
         session.audio_chunks.clear()
         return chunks
+
+    def add_frame(
+        self,
+        session_id: str,
+        frame_id: str,
+        input_source: str,
+        image_base64: str,
+        width: int,
+        height: int,
+        captured_at: str,
+    ) -> FrameSnapshot | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+
+        frame = FrameSnapshot(
+            frame_id=frame_id,
+            input_source=input_source,
+            image_base64=image_base64,
+            width=width,
+            height=height,
+            captured_at=captured_at,
+        )
+        session.frames.append(frame)
+        if len(session.frames) > self._max_frames_per_session:
+            session.frames = session.frames[-self._max_frames_per_session :]
+        return frame
+
+    def get_latest_frame(self, session_id: str) -> FrameSnapshot | None:
+        session = self.touch_session(session_id)
+        if session is None or not session.frames:
+            return None
+        return session.frames[-1]
 
     def remove_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)

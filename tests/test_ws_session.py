@@ -60,6 +60,68 @@ def test_session_start_audio_commit_returns_asr_result() -> None:
         assert committed_event["type"] == "session.status"
 
 
+def test_session_frame_capture_and_commit_returns_vision_result() -> None:
+    with client.websocket_connect("/ws/session") as websocket:
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "session.start",
+                "inputSource": "camera",
+            }
+        )
+
+        ready_event = websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "frame.capture",
+                "sessionId": ready_event["sessionId"],
+                "frameId": "frame-1",
+                "inputSource": "camera",
+                "imageBase64": "ZmFrZS1pbWFnZQ==",
+                "width": 1280,
+                "height": 720,
+                "capturedAt": "2026-06-12T10:00:00+00:00",
+            }
+        )
+        frame_event = websocket.receive_json()
+        assert frame_event["type"] == "frame.stored"
+        assert frame_event["frameId"] == "frame-1"
+
+        websocket.send_json(
+            {
+                "type": "audio.chunk",
+                "sessionId": ready_event["sessionId"],
+                "chunkId": "chunk-vision-1",
+                "mimeType": "audio/webm",
+                "base64Audio": "dGVzdA==",
+                "durationMs": 1200,
+            }
+        )
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "turn.commit",
+                "sessionId": ready_event["sessionId"],
+                "turnId": "turn-vision-1",
+                "silenceMs": 1500,
+                "includeVision": True,
+            }
+        )
+        asr_event = websocket.receive_json()
+        vision_event = websocket.receive_json()
+        committed_event = websocket.receive_json()
+
+        assert asr_event["type"] == "asr.result"
+        assert vision_event["type"] == "vision.result"
+        assert vision_event["frameId"] == "frame-1"
+        assert vision_event["provider"] == "mock"
+        assert "模拟视觉摘要" in vision_event["summary"]
+        assert committed_event["type"] == "session.status"
+
+
 def test_session_ping_and_end() -> None:
     with client.websocket_connect("/ws/session") as websocket:
         websocket.receive_json()
