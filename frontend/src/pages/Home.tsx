@@ -1,6 +1,7 @@
-import { ArrowRight, AudioLines, Camera, History, MessageSquareText, Settings2, Sparkles, Waves } from "lucide-react";
+import { ArrowRight, AudioLines, Camera, History, MessageSquareText, Sparkles, Waves } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -23,49 +24,17 @@ const highlights = [
 ];
 
 const sections = [
-  { label: "工作台", description: "进入实时多模态会话页面，开始一轮产品级体验。", to: "/workspace", icon: Sparkles },
+  { label: "视频语音聊天", description: "进入实时会话页面，直接开始视频与语音聊天。", to: "/workspace", icon: Sparkles },
   { label: "会话记录", description: "后续用于沉淀摘要、关键帧和播放记录。", to: "/history", icon: History },
-  { label: "设置", description: "统一收拢模型、设备和播报偏好等配置。", to: "/settings", icon: Settings2 },
 ];
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-black/10 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-[1280px] items-center justify-between px-6 py-5">
-          <div className="flex items-center gap-8">
-            <Link to="/" className="text-lg font-semibold tracking-tight text-black">
-              More See
-            </Link>
-            <nav className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
-              <Link to="/workspace" className="transition-colors hover:text-black">
-                工作台
-              </Link>
-              <Link to="/history" className="transition-colors hover:text-black">
-                会话记录
-              </Link>
-              <Link to="/settings" className="transition-colors hover:text-black">
-                设置
-              </Link>
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="secondary" asChild>
-              <Link to="/settings">查看配置</Link>
-            </Button>
-            <Button asChild>
-              <Link to="/workspace">
-                进入工作台
-                <ArrowRight className="ml-2 size-4" />
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </header>
+      <TopNav />
 
       <main className="mx-auto flex max-w-[1280px] flex-col gap-16 px-6 pb-20 pt-12 sm:pt-20">
         <section className="flex flex-col items-center border-b border-black/8 pb-16 text-center sm:pb-24">
-          <p className="text-sm text-zinc-500">产品介绍</p>
           <h1 className="mt-6 max-w-5xl text-[clamp(3rem,7vw,5.5rem)] font-semibold tracking-tight text-black">
             把语音、视觉和实时回答整合成更像正式产品的体验
           </h1>
@@ -76,7 +45,7 @@ export default function Home() {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Button asChild>
               <Link to="/workspace">
-                试用工作台
+                开始视频语音聊天
                 <ArrowRight className="ml-2 size-4" />
               </Link>
             </Button>
@@ -93,7 +62,7 @@ export default function Home() {
               <Card key={item.title}>
                 <CardContent className="space-y-5 p-7">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-2xl border border-black/10 bg-black/[0.03] p-3">
+                    <div className="rounded-2xl border border-black/10 bg-black/3 p-3">
                       <Icon className="size-5 text-black" />
                     </div>
                     <p className="text-sm font-medium text-black">{item.title}</p>
@@ -115,17 +84,17 @@ export default function Home() {
                 </h2>
               </div>
               <div className="grid gap-5 sm:grid-cols-3">
-                <div className="rounded-[24px] border border-black/10 bg-black/[0.02] p-5">
+                <div className="rounded-[24px] border border-black/10 bg-black/2 p-5">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">01</p>
                   <p className="mt-4 text-sm leading-7 text-zinc-700">先在首页理解产品定位、能力结构和主要使用路径。</p>
                 </div>
-                <div className="rounded-[24px] border border-black/10 bg-black/[0.02] p-5">
+                <div className="rounded-[24px] border border-black/10 bg-black/2 p-5">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">02</p>
                   <p className="mt-4 text-sm leading-7 text-zinc-700">进入工作台后开启会话，说一句话并让系统自动串联视觉理解。</p>
                 </div>
-                <div className="rounded-[24px] border border-black/10 bg-black/[0.02] p-5">
+                <div className="rounded-[24px] border border-black/10 bg-black/2 p-5">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">03</p>
-                  <p className="mt-4 text-sm leading-7 text-zinc-700">在历史页和设置页继续承接记录沉淀与配置管理，形成完整产品骨架。</p>
+                  <p className="mt-4 text-sm leading-7 text-zinc-700">在历史页继续承接记录沉淀，让首页与聊天页保持更纯粹。</p>
                 </div>
               </div>
             </CardContent>
@@ -134,7 +103,7 @@ export default function Home() {
           <Card>
             <CardContent className="space-y-5 p-8">
               <div className="flex items-center gap-3">
-                <div className="rounded-2xl border border-black/10 bg-black/[0.03] p-3">
+                <div className="rounded-2xl border border-black/10 bg-black/3 p-3">
                   <Waves className="size-5 text-black" />
                 </div>
                 <div>
@@ -149,7 +118,7 @@ export default function Home() {
                     <Link
                       key={section.label}
                       to={section.to}
-                      className="flex items-start gap-4 rounded-[24px] border border-black/10 bg-black/[0.02] px-5 py-5 transition-colors hover:bg-black/[0.04]"
+                      className="flex items-start gap-4 rounded-[24px] border border-black/10 bg-black/2 px-5 py-5 transition-colors hover:bg-black/4"
                     >
                       <div className="rounded-2xl border border-black/10 bg-white p-3">
                         <Icon className="size-4 text-black" />
