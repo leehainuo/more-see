@@ -66,7 +66,7 @@ async def _probe_vision() -> tuple[bool, str]:
 
 
 async def _probe_speech_ws(url: str, *, resource_id: str) -> tuple[bool, str]:
-    async with asyncio.wait_for(
+    websocket = await asyncio.wait_for(
         websockets.connect(
             url,
             additional_headers={
@@ -77,8 +77,12 @@ async def _probe_speech_ws(url: str, *, resource_id: str) -> tuple[bool, str]:
             max_size=2 * 1024 * 1024,
         ),
         timeout=10,
-    ) as websocket:
+    )
+    try:
         await websocket.close()
+    finally:
+        if not websocket.close_code:
+            await websocket.close()
     return True, "语音 WebSocket 握手成功"
 
 

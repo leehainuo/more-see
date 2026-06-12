@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.http as http_api
+from app.services.provider_health_service import _probe_speech_ws
 from app.main import app
 from app.config import settings
 
@@ -53,6 +54,33 @@ def test_provider_healthz_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["summary"]["probe"] is True
     assert payload["providers"]["asr"]["status"] == "error"
     assert payload["providers"]["tts"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_probe_speech_ws_closes_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "volcengine_speech_api_key", "speech-key")
+
+    class FakeWebSocket:
+        def __init__(self) -> None:
+            self.close_calls = 0
+            self.close_code = None
+
+        async def close(self) -> None:
+            self.close_calls += 1
+            self.close_code = 1000
+
+    fake_websocket = FakeWebSocket()
+
+    async def fake_connect(*args, **kwargs):
+        return fake_websocket
+
+    monkeypatch.setattr("app.services.provider_health_service.websockets.connect", fake_connect)
+
+    ok, message = await _probe_speech_ws("wss://example.com/ws", resource_id="seed-test")
+
+    assert ok is True
+    assert message == "语音 WebSocket 握手成功"
+    assert fake_websocket.close_calls == 1
 
 
 def test_public_config() -> None:
