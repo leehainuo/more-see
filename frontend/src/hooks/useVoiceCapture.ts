@@ -147,6 +147,7 @@ export function useVoiceCapture({
       committingTurnRef.current = false;
       chunkCountRef.current = 0;
       recordedDurationMsRef.current = 0;
+      visionCaptureRequestedRef.current = false;
       setRecordedChunks(0);
     });
   }, [cleanupSilenceTimer, finalizeTurn, resetTurnState, sessionId, setRecordedChunks, setRecordingState]);
