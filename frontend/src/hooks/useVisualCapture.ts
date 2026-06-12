@@ -215,12 +215,8 @@ export function useVisualCapture({
         return false;
       }
 
-      const rawWidth = element.videoWidth || 1280;
-      const rawHeight = element.videoHeight || 720;
-      const maxWidth = payload.inputSource === "screen" ? 960 : 720;
-      const scale = Math.min(1, maxWidth / rawWidth);
-      const width = Math.max(1, Math.round(rawWidth * scale));
-      const height = Math.max(1, Math.round(rawHeight * scale));
+      const width = element.videoWidth || 1280;
+      const height = element.videoHeight || 720;
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -232,7 +228,7 @@ export function useVisualCapture({
       }
 
       context.drawImage(element, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
       const imageBase64 = dataUrl.split(",")[1] ?? "";
       const frameId = crypto.randomUUID();
       const capturedAt = new Date().toISOString();
