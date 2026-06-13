@@ -191,6 +191,9 @@ export function useSessionLifecycle() {
   }, [assistantAudioStatus, stopBargeInProbe]);
 
   const tryStartHandsFreeCapture = useCallback(async () => {
+    if (connectionStatus !== "connected") {
+      return;
+    }
     const current = latestSessionRef.current;
     if (
       autoStartingCaptureRef.current ||
@@ -209,7 +212,7 @@ export function useSessionLifecycle() {
     } finally {
       autoStartingCaptureRef.current = false;
     }
-  }, [startCapture]);
+  }, [connectionStatus, startCapture]);
 
   useEffect(() => {
     tryStartHandsFreeCaptureRef.current = () => {
@@ -310,10 +313,10 @@ export function useSessionLifecycle() {
   }, [client, connectionStatus, sessionId]);
 
   useEffect(() => {
-    if (sessionId && sessionStatus === "ready" && !isCapturing) {
+    if (connectionStatus === "connected" && sessionId && sessionStatus === "ready" && !isCapturing) {
       void tryStartHandsFreeCapture();
     }
-  }, [isCapturing, sessionId, sessionStatus, tryStartHandsFreeCapture]);
+  }, [connectionStatus, isCapturing, sessionId, sessionStatus, tryStartHandsFreeCapture]);
 
   useEffect(() => {
     if (connectionStatus !== "connected" || sessionId || !pendingSessionStartRef.current) {
@@ -408,6 +411,10 @@ export function useSessionLifecycle() {
     stopCapture();
     stopAssistantSpeech();
     stopBargeInProbe();
+    useSessionStore.setState((state) => ({
+      sessionStatus: state.sessionId ? "closed" : "idle",
+      assistantAudioStatus: "idle",
+    }));
     client.disconnect();
   }, [client, stopAssistantSpeech, stopBargeInProbe, stopCapture]);
 
