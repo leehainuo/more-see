@@ -1,8 +1,11 @@
 import json
 import asyncio
+import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.auth.deps import get_current_user_id_ws
+from app.cache.session_lock_service import session_lock_service
 from app.services.audio_service import audio_service
 from app.services.asr_stream_service import asr_stream_service
 from app.services.session_service import session_service
@@ -14,10 +17,18 @@ router = APIRouter()
 @router.websocket("/ws/session")
 async def session_ws(websocket: WebSocket) -> None:
     await websocket.accept()
+    try:
+        user_id = await get_current_user_id_ws(websocket)
+    except RuntimeError:
+        return
     await session_service.send_connection_ready(websocket)
     active_turn_task: asyncio.Task[None] | None = None
     active_turn_session_id: str | None = None
     active_turn_id: str | None = None
+    locked_session_id: str | None = None
+    lock_token: str | None = None
+    lock_stop_event: asyncio.Event | None = None
+    lock_heartbeat_task: asyncio.Task[None] | None = None
 
     def clear_active_turn(task: asyncio.Task[None]) -> None:
         nonlocal active_turn_task, active_turn_session_id, active_turn_id
@@ -49,8 +60,30 @@ async def session_ws(websocket: WebSocket) -> None:
         active_turn_session_id = None
         active_turn_id = None
 
+    async def release_session_lock() -> None:
+        nonlocal locked_session_id, lock_token, lock_stop_event, lock_heartbeat_task
+        if lock_stop_event is not None:
+            lock_stop_event.set()
+        if lock_heartbeat_task is not None and not lock_heartbeat_task.done():
+            lock_heartbeat_task.cancel()
+            try:
+                await lock_heartbeat_task
+            except asyncio.CancelledError:
+                pass
+        if locked_session_id and lock_token:
+            await session_lock_service.release(session_id=locked_session_id, token=lock_token)
+        locked_session_id = None
+        lock_token = None
+        lock_stop_event = None
+        lock_heartbeat_task = None
+
     try:
         while True:
+            if lock_stop_event is not None and lock_stop_event.is_set():
+                await cancel_active_turn("session_lock_lost")
+                await websocket.close(code=4409)
+                await release_session_lock()
+                return
             payload = await websocket.receive_text()
             try:
                 data = json.loads(payload)
@@ -67,7 +100,36 @@ async def session_ws(websocket: WebSocket) -> None:
             event_type = data.get("type")
 
             if event_type == "session.start":
-                await session_service.handle_session_start(websocket, data)
+                requested_session_id = data.get("sessionId") or str(uuid.uuid4())
+                if locked_session_id and locked_session_id != requested_session_id:
+                    await release_session_lock()
+                if locked_session_id is None:
+                    token = await session_lock_service.acquire(session_id=requested_session_id)
+                    if token is None:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "code": "session_locked",
+                                "message": "会话正在被其他连接占用，请稍后重试。",
+                            }
+                        )
+                        continue
+                    locked_session_id = requested_session_id
+                    lock_token = token
+                    lock_stop_event = asyncio.Event()
+                    lock_heartbeat_task = asyncio.create_task(
+                        session_lock_service.run_heartbeat(
+                            session_id=requested_session_id,
+                            token=token,
+                            stop_event=lock_stop_event,
+                        )
+                    )
+
+                await session_service.handle_session_start(
+                    websocket,
+                    {**data, "sessionId": requested_session_id},
+                    user_id=user_id,
+                )
             elif event_type == "audio.chunk":
                 await audio_service.handle_audio_chunk(websocket, data)
             elif event_type == "frame.capture":
@@ -112,6 +174,7 @@ async def session_ws(websocket: WebSocket) -> None:
                 if data.get("sessionId"):
                     await asr_stream_service.cancel(session_id=str(data.get("sessionId")))
                 await session_service.handle_session_end(websocket, data)
+                await release_session_lock()
             else:
                 await websocket.send_json(
                     {
@@ -125,4 +188,5 @@ async def session_ws(websocket: WebSocket) -> None:
             active_turn_task.cancel()
         if active_turn_session_id:
             await asr_stream_service.cancel(session_id=active_turn_session_id)
+        await release_session_lock()
         return
