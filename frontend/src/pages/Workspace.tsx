@@ -349,7 +349,7 @@ export default function Workspace() {
   };
 
   const floatingVideoPanel = (
-    <div className="w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[22px] border border-black/10 bg-[#f5f5f5] shadow-[0_24px_60px_rgba(0,0,0,0.16)]">
+    <div className="floating-panel-enter w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[22px] border border-black/10 bg-[#f5f5f5] shadow-[0_24px_60px_rgba(0,0,0,0.16)]">
       <div className="relative aspect-16/10 bg-zinc-950">
         <video
           ref={bindMainVideoElement}
@@ -412,7 +412,7 @@ export default function Workspace() {
       eyebrow="Realtime Call"
       title="视频语音聊天"
       floatingPanel={floatingVideoPanel}
-      floatingPanelClassName="top-[116px] right-4 sm:right-5 lg:right-6"
+      floatingPanelClassName="top-[132px] right-4 sm:right-5 lg:right-6"
       narrow
     >
       <main className="mx-auto w-full max-w-5xl">

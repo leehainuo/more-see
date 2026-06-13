@@ -188,9 +188,64 @@ body::before {
   }
 }
 
+@keyframes floating-panel-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.6) translateZ(0);
+    border-radius: 160px;
+    clip-path: circle(0% at 50% 50%);
+  }
+  25% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02) translateZ(0);
+    border-radius: 160px;
+    clip-path: circle(36px at 50% 50%);
+  }
+  48% {
+    transform: translateY(0) scale(1) translateZ(0);
+    border-radius: 160px;
+    clip-path: circle(36px at 50% 50%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) translateZ(0);
+    border-radius: 22px;
+    clip-path: circle(120% at 50% 50%);
+  }
+}
+
+@keyframes floating-panel-reveal {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .chat-bubble-enter {
   animation: bubble-island-pop 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: transform, opacity;
+}
+
+.floating-panel-enter {
+  position: relative;
+  overflow: hidden;
+  transform-origin: center;
+  animation: floating-panel-pop 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity, clip-path, border-radius;
+  backface-visibility: hidden;
+}
+
+.floating-panel-enter::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: black;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: floating-panel-reveal 640ms ease-out both;
 }
 
 .ai-thinking-surface {
