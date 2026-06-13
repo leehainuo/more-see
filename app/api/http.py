@@ -112,7 +112,7 @@ async def me(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
 async def list_cost_sessions(
     _user_id: int = Depends(require_super_user_id),
     page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=20, ge=1, le=50),
+    pageSize: int = Query(default=10, ge=1, le=50),
 ) -> JSONResponse:
     total = await persistence_repository.count_all_sessions()
     offset = (page - 1) * pageSize
@@ -193,7 +193,7 @@ async def get_cost_session_detail(session_id: str, _user_id: int = Depends(requi
 async def list_sessions(
     user_id: int = Depends(get_current_user_id),
     page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=20, ge=1, le=50),
+    pageSize: int = Query(default=10, ge=1, le=50),
 ) -> JSONResponse:
     total = await persistence_repository.count_sessions(user_id=user_id)
     offset = (page - 1) * pageSize

@@ -14,7 +14,7 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 10;
   const [total, setTotal] = useState(0);
   const [selectedDetail, setSelectedDetail] = useState<SessionDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
