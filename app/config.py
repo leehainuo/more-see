@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     ark_llm_model: str = "doubao-seed-1-6-251015"
     ark_vision_model: str = "doubao-seed-1-6-vision-250815"
 
+    mysql_dsn: str = "mysql+asyncmy://moresee:moresee@127.0.0.1:3306/more_see?charset=utf8mb4"
+    mysql_echo: bool = False
+    mysql_auto_create_tables: bool = True
+
+    auth_jwt_secret: str = "dev-only-secret"
+    auth_jwt_expire_seconds: int = 60 * 60 * 24 * 7
+    auth_cookie_name: str = "moresee_token"
+    auth_allow_register: bool = True
+
+    redis_dsn: str = "redis://127.0.0.1:6379/0"
+    redis_lock_ttl_seconds: int = 30
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
