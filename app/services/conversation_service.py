@@ -6,6 +6,7 @@ import re
 from fastapi import WebSocket
 
 from app.adapters.llm_adapter import llm_adapter
+from app.persistence.service import persistence_service
 from app.state.session_store import session_store
 from app.services.tts_service import tts_service
 
@@ -22,6 +23,7 @@ class ConversationService:
         turn_id: str,
         transcript: str,
         vision_summary: str | None = None,
+        force_no_vision: bool = False,
     ) -> None:
         history_turns = session_store.get_recent_turns(session_id, limit=3)
         session_store.save_turn(
@@ -58,6 +60,7 @@ class ConversationService:
             async for delta in llm_adapter.stream_reply(
                 user_text=transcript,
                 vision_summary=vision_summary,
+                force_no_vision=force_no_vision,
                 history_turns=history_turns,
             ):
                 chunks.append(delta)
@@ -81,6 +84,13 @@ class ConversationService:
             full_text = "".join(chunks)
             session_store.complete_turn(session_id=session_id, turn_id=turn_id, assistant_text=full_text)
             session_store.set_assistant_transcript(session_id, full_text)
+            persistence_service.record_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                user_text=transcript,
+                assistant_text=full_text,
+                vision_summary=vision_summary,
+            )
 
             await websocket.send_json(
                 {

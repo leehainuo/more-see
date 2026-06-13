@@ -1,6 +1,8 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/store/useAuthStore";
 
 const navItems = [
   { to: "/", label: "首页", end: true },
@@ -9,6 +11,15 @@ const navItems = [
 ];
 
 export function TopNav() {
+  const navigate = useNavigate();
+  const status = useAuthStore((state) => state.status);
+  const logout = useAuthStore((state) => state.logout);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
+
   return (
     <header>
       <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-12">
@@ -50,6 +61,18 @@ export function TopNav() {
               </NavLink>
             ))}
           </nav>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {status === "authenticated" ? (
+            <Button variant="ghost" size="sm" onClick={() => void handleLogout()}>
+              退出
+            </Button>
+          ) : status === "anonymous" ? (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/login">登录</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
     </header>

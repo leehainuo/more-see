@@ -19,6 +19,7 @@ class AudioChunk:
 
 @dataclass
 class FrameSnapshot:
+    session_id: str
     frame_id: str
     input_source: str
     image_base64: str
@@ -47,6 +48,7 @@ class TurnRecord:
 class SessionState:
     session_id: str
     input_source: str
+    user_id: int | None = None
     device_info: dict[str, str | None] = field(default_factory=dict)
     audio_chunks: list[AudioChunk] = field(default_factory=list)
     frames: list[FrameSnapshot] = field(default_factory=list)
@@ -68,11 +70,13 @@ class SessionStore:
     def create_session(
         self,
         session_id: str,
+        user_id: int | None,
         input_source: str,
         device_info: dict[str, str | None] | None = None,
     ) -> SessionState:
         session = SessionState(
             session_id=session_id,
+            user_id=user_id,
             input_source=input_source,
             device_info=device_info or {},
         )
@@ -192,6 +196,7 @@ class SessionStore:
             return None
 
         frame = FrameSnapshot(
+            session_id=session_id,
             frame_id=frame_id,
             input_source=input_source,
             image_base64=image_base64,

@@ -42,12 +42,14 @@ class LlmAdapter:
         user_text: str,
         vision_summary: str | None,
         history_turns: list[TurnRecord],
+        force_no_vision: bool = False,
     ) -> AsyncIterator[str]:
         if settings.llm_provider == "volcengine":
             try:
                 messages = await build_conversation_messages(
                     user_text=user_text,
                     vision_summary=vision_summary,
+                    force_no_vision=force_no_vision,
                     history_turns=history_turns,
                 )
                 chat_model = build_chat_model(model=settings.ark_llm_model, temperature=0.5)

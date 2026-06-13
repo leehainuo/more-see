@@ -6,7 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.http import router as http_router
 from app.api.ws import router as ws_router
+from app.cache.redis_client import get_redis, shutdown_redis
 from app.config import settings
+from app.persistence.service import persistence_service
 from app.services.provider_health_service import log_provider_health_snapshot
 
 logger = logging.getLogger(__name__)
@@ -18,7 +20,12 @@ async def lifespan(app: FastAPI):
         await log_provider_health_snapshot()
     except Exception as exc:
         logger.warning("failed to log provider health snapshot: %s", exc)
+    await persistence_service.ensure_schema()
+    redis = get_redis()
+    await redis.ping()
     yield
+    await persistence_service.shutdown()
+    await shutdown_redis()
 
 
 def create_app() -> FastAPI:

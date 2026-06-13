@@ -5,6 +5,7 @@ import asyncio
 from fastapi import WebSocket
 
 from app.adapters.vision_adapter import vision_adapter
+from app.persistence.service import persistence_service
 from app.state.session_store import FrameSnapshot, session_store, utc_now_iso
 
 
@@ -18,12 +19,30 @@ class VisionService:
         except Exception as exc:
             frame.summary_error = str(exc)
             frame.summarized_at = utc_now_iso()
+            persistence_service.record_frame_summary(
+                session_id=frame.session_id,
+                frame_id=frame.frame_id,
+                summary=None,
+                provider=None,
+                cache_hit=False,
+                summarized_at=frame.summarized_at,
+                summary_error=frame.summary_error,
+            )
             raise
         frame.summary = result["summary"]
         frame.summary_provider = result["provider"]
         frame.summary_cache_hit = bool(result.get("cacheHit", False))
         frame.summary_error = None
         frame.summarized_at = utc_now_iso()
+        persistence_service.record_frame_summary(
+            session_id=frame.session_id,
+            frame_id=frame.frame_id,
+            summary=frame.summary,
+            provider=frame.summary_provider,
+            cache_hit=bool(frame.summary_cache_hit),
+            summarized_at=frame.summarized_at,
+            summary_error=None,
+        )
         return result
 
     async def handle_frame_capture(self, websocket: WebSocket, payload: dict) -> None:
@@ -68,6 +87,14 @@ class VisionService:
                 "capturedAt": frame.captured_at,
                 "message": "关键帧已缓存，等待在本轮提交时参与视觉理解。",
             }
+        )
+        persistence_service.record_frame_capture(
+            session_id=session_id,
+            frame_id=frame.frame_id,
+            input_source=frame.input_source,
+            width=frame.width,
+            height=frame.height,
+            captured_at=frame.captured_at,
         )
         if frame.frame_id and frame.frame_id not in self._summary_tasks:
             task = asyncio.create_task(self._summarize_frame(frame))
