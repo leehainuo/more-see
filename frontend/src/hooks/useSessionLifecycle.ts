@@ -448,14 +448,23 @@ export function useSessionLifecycle() {
   );
 
   const startNewSession = useCallback(() => {
-    if (sessionId) {
-      pendingStartNewSessionRef.current = true;
-      closeSession();
-      return;
-    }
     useSessionStore.getState().resetMessages();
+    useSessionStore.setState((state) => ({
+      sessionId: null,
+      sessionStatus: "idle",
+      inputLevel: 0,
+      recordedChunks: 0,
+      visionStatus: state.visionEnabled ? "preview" : "idle",
+      visionSummary: "",
+      assistantAudioStatus: "idle",
+      keyframes: [],
+      lastFrameStoredId: null,
+      systemMessage: "等待连接 WebSocket 通道。",
+    }));
+    pendingSessionStartRef.current = true;
+    pendingResumeSessionIdRef.current = null;
     requestSessionStart();
-  }, [closeSession, requestSessionStart, sessionId]);
+  }, [requestSessionStart]);
 
   return {
     connectionStatus,

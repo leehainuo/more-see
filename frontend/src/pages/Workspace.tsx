@@ -84,8 +84,6 @@ export default function Workspace() {
   const lastFrameStoredId = useSessionStore((state) => state.lastFrameStoredId);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const setVisionEnabled = useSessionStore((state) => state.setVisionEnabled);
-  const systemMessage = useSessionStore((state) => state.systemMessage);
-  const visionStatus = useSessionStore((state) => state.visionStatus);
   const resetMessages = useSessionStore((state) => state.resetMessages);
   const hydrateHistoryTurns = useSessionStore((state) => state.hydrateHistoryTurns);
   const [isCapturePending, setIsCapturePending] = useState(false);
@@ -355,19 +353,7 @@ export default function Workspace() {
         <div className="mx-auto w-full max-w-3xl">
           <div className="pointer-events-auto rounded-full border border-black/10 bg-white/96 px-3 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.10)] backdrop-blur">
             <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1 px-1">
-                <p className="truncate text-[1.05rem] text-zinc-500">
-                  {sessionId
-                    ? isScreenMode
-                      ? "正在结合你的屏幕与语音理解问题"
-                      : "可以继续说话，我会结合当前画面回复"
-                    : "有问题，尽管问"}
-                </p>
-                <p className="mt-1 truncate text-xs text-zinc-400">
-                  {systemMessage}
-                  {sessionId ? ` · 视觉 ${visionStatus}` : ""}
-                </p>
-              </div>
+              <div className="min-w-0 flex-1 px-1" />
 
               <div className="flex items-center rounded-full border border-black/10 bg-zinc-50 p-1">
                 <button
@@ -417,7 +403,7 @@ export default function Workspace() {
               <button
                 type="button"
                 onClick={startNewSession}
-                disabled={connectionStatus !== "connected"}
+                disabled={connectionStatus === "connecting"}
                 className={cn(
                   "grid size-11 shrink-0 place-items-center rounded-full border transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50",
                   "border-black/10 bg-white text-black hover:bg-black/3",
