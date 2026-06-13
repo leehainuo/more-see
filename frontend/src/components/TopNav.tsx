@@ -23,7 +23,7 @@ export function TopNav() {
   };
 
   return (
-    <header>
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-black/10 bg-white/88 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-12">
         <div className="flex items-center gap-8">
           <Link to="/" className="text-lg font-black tracking-tight">

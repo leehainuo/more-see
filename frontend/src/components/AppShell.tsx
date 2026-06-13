@@ -28,11 +28,11 @@ export function AppShell({
 
   const getClampedPosition = (left: number, top: number, width: number, height: number) => {
     const maxLeft = Math.max(16, window.innerWidth - width - 16);
-    const maxTop = Math.max(92, window.innerHeight - height - 16);
+    const maxTop = Math.max(108, window.innerHeight - height - 16);
 
     return {
       left: Math.min(Math.max(16, left), maxLeft),
-      top: Math.min(Math.max(92, top), maxTop),
+      top: Math.min(Math.max(108, top), maxTop),
     };
   };
 
@@ -120,7 +120,7 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background pt-20 text-foreground">
       <TopNav />
 
       {floatingPanel ? (
@@ -129,7 +129,7 @@ export function AppShell({
           onPointerDown={handleFloatingPanelPointerDown}
           className={cn(
             "pointer-events-none fixed z-40 cursor-grab select-none touch-none active:cursor-grabbing",
-            !floatingPosition && "right-4 top-[92px] sm:right-5 lg:right-6",
+            !floatingPosition && "right-4 top-[108px] sm:right-5 lg:right-6",
             floatingPanelClassName,
           )}
           style={
