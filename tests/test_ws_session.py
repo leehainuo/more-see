@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
@@ -307,6 +308,58 @@ def test_asr_partial_request_returns_disabled_status() -> None:
 
         assert partial_event["type"] == "session.status"
         assert "已关闭打断功能" in partial_event["message"]
+
+
+def test_assistant_interrupt_cancels_active_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = {"value": False}
+
+    async def fake_handle_turn_commit(_websocket, _payload):
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled["value"] = True
+            raise
+
+    monkeypatch.setattr(audio_service, "handle_turn_commit", fake_handle_turn_commit)
+
+    with client.websocket_connect("/ws/session") as websocket:
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "session.start",
+                "inputSource": "camera",
+            }
+        )
+        ready_event = websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "turn.commit",
+                "sessionId": ready_event["sessionId"],
+                "turnId": "turn-interrupt",
+                "silenceMs": 1200,
+                "includeVision": False,
+            }
+        )
+
+        websocket.send_json(
+            {
+                "type": "assistant.interrupt",
+                "sessionId": ready_event["sessionId"],
+                "reason": "barge_in",
+            }
+        )
+
+        event = websocket.receive_json()
+        if event["type"] == "session.status":
+            event = websocket.receive_json()
+        assert event["type"] == "assistant.interrupted"
+        assert event["sessionId"] == ready_event["sessionId"]
+        assert event["turnId"] == "turn-interrupt"
+        assert event["reason"] == "barge_in"
+
+    assert cancelled["value"] is True
 
 
 @pytest.mark.asyncio

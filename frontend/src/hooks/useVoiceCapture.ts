@@ -6,6 +6,7 @@ type VoiceCaptureOptions = {
   sessionId: string | null;
   inputSource: "camera" | "screen";
   visionEnabled: boolean;
+  onBargeIn?: (sessionId: string) => void;
   sendAudioChunk: (payload: {
     sessionId: string;
     chunkId: string;
@@ -72,6 +73,7 @@ export function useVoiceCapture({
   sessionId,
   inputSource,
   visionEnabled,
+  onBargeIn,
   sendAudioChunk,
   commitTurn,
   captureFrameForTurn,
@@ -88,6 +90,7 @@ export function useVoiceCapture({
   const isTurnActiveRef = useRef(false);
   const committingTurnRef = useRef(false);
   const visionCaptureRequestedRef = useRef(false);
+  const bargeInTriggeredRef = useRef(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const inputLevel = useSessionStore((state) => state.inputLevel);
   const recordedChunks = useSessionStore((state) => state.recordedChunks);
@@ -104,6 +107,7 @@ export function useVoiceCapture({
 
   const resetTurnState = useCallback(() => {
     isTurnActiveRef.current = false;
+    bargeInTriggeredRef.current = false;
     chunkCountRef.current = 0;
     recordedDurationMsRef.current = 0;
     visionCaptureRequestedRef.current = false;
@@ -146,12 +150,14 @@ export function useVoiceCapture({
 
     committingTurnRef.current = true;
     isTurnActiveRef.current = false;
+    bargeInTriggeredRef.current = false;
     setRecordingState("recognizing", 0);
 
     void finalizeTurn(activeSessionId).finally(() => {
       committingTurnRef.current = false;
       chunkCountRef.current = 0;
       recordedDurationMsRef.current = 0;
+      bargeInTriggeredRef.current = false;
       visionCaptureRequestedRef.current = false;
       setRecordedChunks(0);
     });
@@ -161,6 +167,7 @@ export function useVoiceCapture({
     cleanupSilenceTimer();
     isTurnActiveRef.current = false;
     committingTurnRef.current = false;
+    bargeInTriggeredRef.current = false;
     analyserRef.current = null;
     processorRef.current?.disconnect();
     processorRef.current = null;
@@ -279,7 +286,7 @@ export function useVoiceCapture({
         const rms = Math.sqrt(sumSquares / channelData.length);
         const storeState = useSessionStore.getState();
         const assistantSpeaking = storeState.assistantAudioStatus === "speaking";
-        const canStartTurn = !assistantSpeaking && ["ready", "recording"].includes(storeState.sessionStatus);
+        const canStartTurn = ["ready", "recording", "streaming"].includes(storeState.sessionStatus);
 
         if (!isTurnActiveRef.current) {
           if (!canStartTurn) {
@@ -287,6 +294,11 @@ export function useVoiceCapture({
           }
           if (rms <= SILENCE_THRESHOLD) {
             return;
+          }
+
+          if (assistantSpeaking && !bargeInTriggeredRef.current) {
+            bargeInTriggeredRef.current = true;
+            onBargeIn?.(sessionId);
           }
 
           isTurnActiveRef.current = true;
@@ -329,6 +341,7 @@ export function useVoiceCapture({
     setRecordedChunks,
     setRecordingState,
     visionEnabled,
+    onBargeIn,
   ]);
 
   useEffect(() => {

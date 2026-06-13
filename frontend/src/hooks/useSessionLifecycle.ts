@@ -99,6 +99,26 @@ export function useSessionLifecycle() {
     });
   };
 
+  const onBargeIn = useCallback(
+    (activeSessionId: string) => {
+      stopAssistantSpeechRef.current();
+      useSessionStore.setState({
+        assistantAudioStatus: "idle",
+        systemMessage: "检测到你正在说话，已停止 AI 播报并开始新一轮录音。",
+      });
+      try {
+        client.send({
+          type: "assistant.interrupt",
+          sessionId: activeSessionId,
+          reason: "barge_in",
+        });
+      } catch {
+        return;
+      }
+    },
+    [client],
+  );
+
   const {
     bindMainVideoElement,
     bindPipVideoElement,
@@ -117,6 +137,7 @@ export function useSessionLifecycle() {
     sessionId,
     inputSource,
     visionEnabled,
+    onBargeIn,
     sendAudioChunk,
     commitTurn,
     captureFrameForTurn,
