@@ -41,6 +41,24 @@ export type AdminCostSessionsResponse = {
   items: AdminCostSessionItem[];
 };
 
+export type AdminCostTurnItem = {
+  turnId: string;
+  createdAt: string;
+  userText: string;
+  assistantText: string;
+  visionSummary: string | null;
+  asrDurationMs: number;
+  asrProvider: string | null;
+  ttsCharCount: number;
+  ttsProvider: string | null;
+  asrCostYuan: number;
+  ttsCostYuan: number;
+};
+
+export type AdminCostSessionDetailResponse = AdminCostSessionItem & {
+  turns: AdminCostTurnItem[];
+};
+
 export type SessionListItem = {
   sessionId: string;
   inputSource: string;
@@ -131,6 +149,10 @@ export async function loginOrRegister(username: string, password: string): Promi
 
 export async function fetchAdminCostSessions(): Promise<AdminCostSessionsResponse> {
   return fetchJson<AdminCostSessionsResponse>("/api/admin/costs/sessions");
+}
+
+export async function fetchAdminCostSessionDetail(sessionId: string): Promise<AdminCostSessionDetailResponse> {
+  return fetchJson<AdminCostSessionDetailResponse>(`/api/admin/costs/sessions/${encodeURIComponent(sessionId)}`);
 }
 
 export async function logout(): Promise<{ ok: boolean }> {

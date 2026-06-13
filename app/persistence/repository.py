@@ -254,6 +254,14 @@ class PersistenceRepository:
                 .where(SessionRow.user_id == user_id, SessionRow.session_id == session_id)
             )
 
+    async def get_session_detail_admin(self, *, session_id: str) -> SessionRow | None:
+        async with session_scope() as session:
+            return await session.scalar(
+                select(SessionRow)
+                .options(selectinload(SessionRow.turns), selectinload(SessionRow.frames))
+                .where(SessionRow.session_id == session_id)
+            )
+
     @staticmethod
     def _parse_dt(value: str) -> datetime:
         try:
