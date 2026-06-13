@@ -169,7 +169,7 @@ export default function Workspace() {
   }, [lastFrameStoredId, sessionId]);
 
   useEffect(() => {
-    if (!resumeSessionId || sessionId) {
+    if (!resumeSessionId || resumeSessionId === sessionId) {
       return;
     }
     let cancelled = false;
@@ -182,15 +182,30 @@ export default function Workspace() {
         }
         hydrateHistoryTurns(detail.turns);
         setInputSource(detail.inputSource === "screen" ? "screen" : "camera");
+        useSessionStore.setState({
+          sessionId: resumeSessionId,
+          sessionStatus: "closed",
+        });
+        setSearchParams({}, { replace: true });
       } catch {
         if (cancelled) {
           return;
         }
+        toast.error("历史会话加载失败", {
+          description: "请确认后端服务已启动且登录状态有效，然后刷新重试。",
+          duration: 2400,
+        });
+        useSessionStore.setState({
+          messages: [
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "历史会话加载失败。请确认后端服务已启动，然后刷新页面重试。",
+            },
+          ],
+        });
       } finally {
-        if (!cancelled) {
-          requestSessionStart(resumeSessionId);
-          setSearchParams({}, { replace: true });
-        }
+        return;
       }
     })();
     return () => {
@@ -198,7 +213,6 @@ export default function Workspace() {
     };
   }, [
     hydrateHistoryTurns,
-    requestSessionStart,
     resetMessages,
     resumeSessionId,
     sessionId,
@@ -415,6 +429,8 @@ export default function Workspace() {
                 disabled={
                   connectionStatus !== "connected" ||
                   !sessionId ||
+                  sessionStatus === "idle" ||
+                  sessionStatus === "closed" ||
                   sessionStatus === "recognizing" ||
                   sessionStatus === "transcribing" ||
                   isCaptureBooting
