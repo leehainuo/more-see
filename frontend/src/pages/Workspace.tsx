@@ -33,8 +33,9 @@ function ConversationBubble({ message }: { message: DisplayMessage }) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <article
         className={cn(
-          "max-w-[88%] border px-4 py-2.5 sm:max-w-[78%]",
+          "max-w-[88%] rounded-lg border px-4 py-2.5 sm:max-w-[78%]",
           isUser ? "border-black bg-black text-white" : "border-black/10 bg-white text-zinc-900",
+          isUser ? "rounded-br-[3px]" : "rounded-bl-[3px]",
           entered && "chat-bubble-enter",
           (message.streaming || isPendingAssistant) && "ai-thinking-surface",
           isPending && "min-w-[136px]",
