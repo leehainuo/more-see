@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { toast } from "sonner";
+
 import { useSessionStore } from "@/store/useSessionStore";
 
 type InputSource = "camera" | "screen";
@@ -295,6 +297,10 @@ export function useVisualCapture({
           const distance = hammingDistanceHex(fingerprint, previousFingerprint);
           if (distance <= 6) {
             setVisionStatus("preview", "画面变化较小，本轮将复用上一帧视觉摘要以降低延迟与成本。");
+            toast.success("关键帧已复用上一帧", {
+              description: "画面变化较小，本轮不会重复上传关键帧。",
+              duration: 1800,
+            });
             return null;
           }
         }

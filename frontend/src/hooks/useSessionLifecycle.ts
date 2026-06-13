@@ -23,6 +23,7 @@ export function useSessionLifecycle() {
   const pcmPlayerRef = useRef<StreamingPcmPlayer | null>(null);
   const playbackPhaseRef = useRef<"idle" | "loading" | "playing">("idle");
   const autoStartingCaptureRef = useRef(false);
+  const suppressTtsPlaybackRef = useRef(false);
   const startSessionRef = useRef<(resumeSessionId?: string) => void>(() => undefined);
   const tryStartHandsFreeCaptureRef = useRef<() => void>(() => undefined);
   const stopAssistantSpeechRef = useRef<() => void>(() => undefined);
@@ -54,10 +55,6 @@ export function useSessionLifecycle() {
     return pcmPlayerRef.current;
   }, []);
 
-  const setAssistantVolume = useCallback((volume: number) => {
-    pcmPlayerRef.current?.setVolume(volume);
-  }, []);
-
   const stopAssistantSpeech = useCallback(() => {
     speechTokenRef.current += 1;
     playbackPhaseRef.current = "idle";
@@ -69,15 +66,15 @@ export function useSessionLifecycle() {
       window.clearInterval(bargeInProbeTimerRef.current);
       bargeInProbeTimerRef.current = null;
     }
-    setAssistantVolume(1);
-  }, [setAssistantVolume]);
+  }, []);
 
   const onBargeInProbe = useCallback(
     (activeSessionId: string) => {
       if (bargeInProbeTimerRef.current) {
         return;
       }
-      setAssistantVolume(0);
+      suppressTtsPlaybackRef.current = true;
+      stopAssistantSpeechRef.current();
 
       const sendProbe = () => {
         try {
@@ -95,7 +92,7 @@ export function useSessionLifecycle() {
       sendProbe();
       bargeInProbeTimerRef.current = window.setInterval(sendProbe, 260);
     },
-    [client, setAssistantVolume, stopBargeInProbe],
+    [client, stopBargeInProbe],
   );
 
   const sendAudioChunk = (payload: {
@@ -160,12 +157,16 @@ export function useSessionLifecycle() {
     onBargeInProbe,
     onUserSpeechActivity: (active) => {
       if (!active) {
-        setAssistantVolume(1);
         return;
       }
-      if (useSessionStore.getState().assistantAudioStatus === "speaking") {
-        setAssistantVolume(0);
+      if (useSessionStore.getState().assistantAudioStatus !== "speaking") {
+        return;
       }
+      suppressTtsPlaybackRef.current = true;
+      stopAssistantSpeechRef.current();
+      useSessionStore.setState({
+        systemMessage: "检测到你正在说话，已停止 AI 播报并开始新一轮录音。",
+      });
     },
     sendAudioChunk,
     commitTurn,
@@ -225,11 +226,15 @@ export function useSessionLifecycle() {
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
       if (event.type === "tts.start") {
+        suppressTtsPlaybackRef.current = false;
         speechTokenRef.current += 1;
         playbackPhaseRef.current = "loading";
         ensurePcmPlayer().stop();
       }
       if (event.type === "tts.chunk") {
+        if (suppressTtsPlaybackRef.current) {
+          return;
+        }
         if (event.mimeType !== "audio/pcm") {
           useSessionStore.setState({
             systemMessage: `暂不支持 ${event.mimeType} 的流式播放格式。`,
@@ -240,6 +245,10 @@ export function useSessionLifecycle() {
         void ensurePcmPlayer().appendChunk(event.audioBase64, event.sampleRate);
       }
       if (event.type === "tts.done") {
+        if (suppressTtsPlaybackRef.current) {
+          useSessionStore.getState().markAssistantAudioPlaybackComplete();
+          return;
+        }
         if (playbackPhaseRef.current === "idle") {
           useSessionStore.getState().markAssistantAudioPlaybackComplete();
         }
@@ -251,10 +260,6 @@ export function useSessionLifecycle() {
       if (event.type === "asr.partial" && event.verdict === "confirmed") {
         stopBargeInProbe();
         stopAssistantSpeechRef.current();
-        useSessionStore.setState({
-          assistantAudioStatus: "idle",
-          systemMessage: "检测到你正在说话，已停止 AI 播报并开始新一轮录音。",
-        });
       }
     });
     client.connect();
