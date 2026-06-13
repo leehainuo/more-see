@@ -13,11 +13,32 @@ export type TtsSynthesizeResponse = {
 
 export type AuthMeResponse = {
   userId: number;
+  username: string;
+  isSuper: 0 | 1;
 };
 
 export type AuthLoginResponse = {
   userId: number;
   username: string;
+  isSuper: 0 | 1;
+};
+
+export type AdminCostSessionItem = {
+  sessionId: string;
+  inputSource: string;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+  asrDurationMs: number;
+  ttsCharCount: number;
+  asrCostYuan: number;
+  ttsCostYuan: number;
+  visionFrameCount: number;
+  visionCacheHitCount: number;
+};
+
+export type AdminCostSessionsResponse = {
+  items: AdminCostSessionItem[];
 };
 
 export type SessionListItem = {
@@ -106,6 +127,10 @@ export async function loginOrRegister(username: string, password: string): Promi
     },
     body: JSON.stringify({ username, password }),
   });
+}
+
+export async function fetchAdminCostSessions(): Promise<AdminCostSessionsResponse> {
+  return fetchJson<AdminCostSessionsResponse>("/api/admin/costs/sessions");
 }
 
 export async function logout(): Promise<{ ok: boolean }> {

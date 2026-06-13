@@ -311,6 +311,8 @@ class AudioService:
             transcript=str(result["transcript"]),
             vision_summary=vision_summary,
             force_no_vision=include_vision and vision_summary is None,
+            asr_duration_ms=int(result.get("durationMs", 0) or 0),
+            asr_provider=str(result.get("provider") or ""),
         )
 
     async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> None:

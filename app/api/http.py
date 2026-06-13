@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.auth.deps import get_current_user_id
+from app.auth.deps import get_current_user_id, require_super_user_id
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.persistence.repository import persistence_repository
+from app.services.cost_service import estimate_asr_cost_yuan, estimate_tts_cost_yuan
 from app.services.provider_health_service import get_provider_health
 from app.services.tts_service import tts_service
 
@@ -64,7 +65,7 @@ async def register(payload: AuthRegisterRequest) -> JSONResponse:
     )
     if user is None:
         raise HTTPException(status_code=500, detail="注册失败")
-    return JSONResponse(content={"userId": user.id, "username": user.username})
+    return JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
 
 
 @router.post("/api/auth/login")
@@ -80,7 +81,7 @@ async def login(payload: AuthLoginRequest) -> JSONResponse:
     elif not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = create_access_token(user_id=user.id)
-    result = JSONResponse(content={"userId": user.id, "username": user.username})
+    result = JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
     result.set_cookie(
         key=settings.auth_cookie_name,
         value=token,
@@ -101,7 +102,37 @@ async def logout() -> JSONResponse:
 
 @router.get("/api/auth/me")
 async def me(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
-    return JSONResponse(content={"userId": user_id})
+    user = await persistence_repository.get_user_by_id(user_id=user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    return JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
+
+
+@router.get("/api/admin/costs/sessions")
+async def list_cost_sessions(_user_id: int = Depends(require_super_user_id)) -> JSONResponse:
+    rows = await persistence_repository.list_all_sessions_with_details(limit=50, offset=0)
+    items = []
+    for row in rows:
+        turns = sorted(row.turns, key=lambda item: item.created_at)
+        frames = sorted(row.frames, key=lambda item: item.created_at)
+        asr_duration_ms = sum(int(getattr(turn, "asr_duration_ms", 0) or 0) for turn in turns)
+        tts_char_count = sum(int(getattr(turn, "tts_char_count", 0) or 0) for turn in turns)
+        items.append(
+            {
+                "sessionId": row.session_id,
+                "inputSource": row.input_source,
+                "createdAt": row.created_at.isoformat(),
+                "updatedAt": row.updated_at.isoformat(),
+                "endedAt": row.ended_at.isoformat() if row.ended_at else None,
+                "asrDurationMs": asr_duration_ms,
+                "ttsCharCount": tts_char_count,
+                "asrCostYuan": estimate_asr_cost_yuan(duration_ms=asr_duration_ms),
+                "ttsCostYuan": estimate_tts_cost_yuan(char_count=tts_char_count),
+                "visionFrameCount": len(frames),
+                "visionCacheHitCount": sum(1 for frame in frames if int(getattr(frame, "cache_hit", 0) or 0) == 1),
+            }
+        )
+    return JSONResponse(content={"items": items})
 
 
 @router.get("/api/sessions")

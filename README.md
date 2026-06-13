@@ -78,6 +78,12 @@ cd frontend && npm run check
 - `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
 - 若本地暂时没有火山密钥，后端会自动进入降级处理并返回保守回复或兜底音频
 
+## 成本面板（需要超级用户）
+- 前端入口：`/costs`
+- 权限规则：`users.is_super = 1` 才能进入；否则会弹出提示并自动回到首页
+- 后端接口：`GET /api/admin/costs/sessions`
+- 计费口径：按火山官方文档的后付费单价做预估，可通过环境变量 `COST_ASR_PRICE_YUAN_PER_HOUR`、`COST_TTS_PRICE_YUAN_PER_10K_CHARS` 调整
+
 ## TTS 接口
 - `POST /api/tts/synthesize`
 - 请求体：`{"text":"你好，欢迎使用 More See"}`

@@ -16,6 +16,7 @@ class UserRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    is_super: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -49,6 +50,10 @@ class TurnRow(Base):
     user_text: Mapped[str] = mapped_column(Text)
     assistant_text: Mapped[str] = mapped_column(Text, default="")
     vision_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asr_duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    asr_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    tts_char_count: Mapped[int] = mapped_column(Integer, default=0)
+    tts_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
