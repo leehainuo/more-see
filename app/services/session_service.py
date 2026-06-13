@@ -4,7 +4,9 @@ import uuid
 
 from fastapi import WebSocket
 
+from app.persistence.repository import persistence_repository
 from app.state.session_store import session_store
+from app.persistence.service import persistence_service
 
 
 class SessionService:
@@ -16,15 +18,38 @@ class SessionService:
             }
         )
 
-    async def handle_session_start(self, websocket: WebSocket, payload: dict) -> str:
+    async def handle_session_start(self, websocket: WebSocket, payload: dict, *, user_id: int) -> str:
         session_id = payload.get("sessionId") or str(uuid.uuid4())
         input_source = payload.get("inputSource", "camera")
         device_info = payload.get("deviceInfo", {})
 
-        session = session_store.create_session(
-            session_id=session_id,
-            input_source=input_source,
-            device_info=device_info,
+        existing = await persistence_repository.get_session_detail(user_id=user_id, session_id=session_id)
+        if existing is not None:
+            session = session_store.create_session(
+                session_id=session_id,
+                user_id=user_id,
+                input_source=existing.input_source,
+                device_info=existing.device_info,
+            )
+            turns = sorted(existing.turns, key=lambda item: item.created_at)[-3:]
+            for turn in turns:
+                session_store.save_turn(session_id, turn.turn_id, turn.user_text, turn.vision_summary)
+                if turn.assistant_text:
+                    session_store.complete_turn(session_id, turn.turn_id, turn.assistant_text)
+        else:
+            session = session_store.create_session(
+                session_id=session_id,
+                user_id=user_id,
+                input_source=input_source,
+                device_info=device_info,
+            )
+        persistence_service.record_session_started(
+            session_id=session.session_id,
+            user_id=user_id,
+            input_source=session.input_source,
+            device_info=session.device_info,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
         )
 
         await websocket.send_json(
@@ -70,6 +95,7 @@ class SessionService:
             return
 
         session_store.remove_session(session_id)
+        persistence_service.record_session_ended(session_id=session_id)
         await websocket.send_json(
             {
                 "type": "session.closed",
