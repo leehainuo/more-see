@@ -108,6 +108,16 @@ export default function Workspace() {
     commitCurrentTurn,
   } = useSessionLifecycle();
 
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    if (resumeSessionId === sessionId) {
+      return;
+    }
+    setSearchParams({ sessionId }, { replace: true });
+  }, [resumeSessionId, sessionId, setSearchParams]);
+
   const displayMessages = useMemo(
     () =>
       messages.filter(
@@ -186,7 +196,6 @@ export default function Workspace() {
           sessionId: resumeSessionId,
           sessionStatus: "closed",
         });
-        setSearchParams({}, { replace: true });
       } catch {
         if (cancelled) {
           return;
@@ -217,7 +226,6 @@ export default function Workspace() {
     resumeSessionId,
     sessionId,
     setInputSource,
-    setSearchParams,
   ]);
 
   const handleConnectionToggle = () => {
@@ -226,6 +234,11 @@ export default function Workspace() {
       return;
     }
     connectConnection();
+  };
+
+  const handleStartNewSession = () => {
+    setSearchParams({}, { replace: true });
+    startNewSession();
   };
 
   const handleCaptureToggle = async () => {
@@ -412,7 +425,7 @@ export default function Workspace() {
 
               <button
                 type="button"
-                onClick={startNewSession}
+                onClick={handleStartNewSession}
                 disabled={connectionStatus === "connecting"}
                 className={cn(
                   "grid size-11 shrink-0 place-items-center rounded-full border transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50",
