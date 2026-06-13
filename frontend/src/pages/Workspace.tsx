@@ -112,7 +112,7 @@ export default function Workspace() {
     if (!sessionId) {
       return;
     }
-    if (resumeSessionId === sessionId) {
+    if (resumeSessionId) {
       return;
     }
     setSearchParams({ sessionId }, { replace: true });
