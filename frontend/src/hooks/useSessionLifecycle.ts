@@ -270,7 +270,6 @@ export function useSessionLifecycle() {
         stopAssistantSpeechRef.current();
       }
     });
-    client.connect();
 
     return () => {
       stopAssistantSpeechRef.current();
@@ -439,12 +438,11 @@ export function useSessionLifecycle() {
       void startSession({ resumeSessionId: nextResumeSessionId, announce: true });
       return;
     }
-
-    if (connectionStatus !== "connecting") {
-      reconnect();
-    }
+    useSessionStore.setState({
+      systemMessage: "WebSocket 未连接，请先点击连接。",
+    });
     },
-    [connectionStatus, reconnect, startSession],
+    [connectionStatus, startSession],
   );
 
   const startNewSession = useCallback(() => {
@@ -481,7 +479,6 @@ export function useSessionLifecycle() {
     visionEnabled,
     setInputSource,
     requestSessionStart,
-    reconnect,
     startSession: (resumeSessionId?: string) => void startSession({ resumeSessionId, announce: true }),
     closeSession,
     connectConnection,

@@ -222,11 +222,7 @@ export default function Workspace() {
     }
 
     if (connectionStatus !== "connected") {
-      if (sessionId) {
-        connectConnection();
-        return;
-      }
-      requestSessionStart();
+      toast.message("请先点击连接", { description: "连接成功后再开始录音或创建新对话。", duration: 1800 });
       return;
     }
 
@@ -240,7 +236,7 @@ export default function Workspace() {
     }
 
     if (!sessionId) {
-      requestSessionStart();
+      toast.message("请先创建新对话", { description: "点击右侧的新对话按钮创建会话。", duration: 1800 });
       return;
     }
 
@@ -353,8 +349,6 @@ export default function Workspace() {
         <div className="mx-auto w-full max-w-3xl">
           <div className="pointer-events-auto rounded-full border border-black/10 bg-white/96 px-3 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.10)] backdrop-blur">
             <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1 px-1" />
-
               <div className="flex items-center rounded-full border border-black/10 bg-zinc-50 p-1">
                 <button
                   type="button"
@@ -381,6 +375,8 @@ export default function Workspace() {
                   屏幕
                 </button>
               </div>
+
+              <div className="min-w-0 flex-1 px-1" />
 
               <button
                 type="button"
@@ -443,10 +439,10 @@ export default function Workspace() {
                     aria-hidden="true"
                   >
                     {Array.from({ length: 9 }).map((_, index) => {
-                      const activeBase = 10 + ((index % 4) + 1) * 5;
-                      const expandedBase = [10, 14, 18, 22, 26, 22, 18, 14, 10][index] ?? 14;
+                      const activeBase = 8 + ((index % 4) + 1) * 4;
+                      const expandedBase = [8, 11, 14, 17, 20, 17, 14, 11, 8][index] ?? 11;
                       const height = isCapturing
-                        ? Math.round(activeBase + inputLevel * (14 + (index % 3) * 4))
+                        ? Math.round(activeBase + inputLevel * (8 + (index % 3) * 2))
                         : expandedBase;
                       return (
                         <span

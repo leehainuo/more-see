@@ -15,7 +15,11 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
   const status = useAuthStore((state) => state.status);
 
   if (status === "unknown") {
-    return <div className="min-h-screen bg-background text-foreground" />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <div className="text-sm text-zinc-500">正在检查登录状态...</div>
+      </div>
+    );
   }
 
   if (status !== "authenticated") {

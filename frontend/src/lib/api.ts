@@ -112,12 +112,19 @@ export type SessionDetailResponse = {
 };
 
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  const controller = init?.signal ? null : new AbortController();
+  const timeout = init?.signal ? null : window.setTimeout(() => controller?.abort(), 6500);
   const response = await fetch(input, {
     credentials: "include",
     ...init,
+    signal: init?.signal ?? controller?.signal,
     headers: {
       ...(init?.headers ?? {}),
     },
+  }).finally(() => {
+    if (timeout) {
+      window.clearTimeout(timeout);
+    }
   });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
