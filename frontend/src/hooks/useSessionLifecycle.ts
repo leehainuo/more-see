@@ -23,10 +23,11 @@ export function useSessionLifecycle() {
   const pcmPlayerRef = useRef<StreamingPcmPlayer | null>(null);
   const playbackPhaseRef = useRef<"idle" | "loading" | "playing">("idle");
   const autoStartingCaptureRef = useRef(false);
-  const startSessionRef = useRef<() => void>(() => undefined);
+  const startSessionRef = useRef<(resumeSessionId?: string) => void>(() => undefined);
   const tryStartHandsFreeCaptureRef = useRef<() => void>(() => undefined);
   const stopAssistantSpeechRef = useRef<() => void>(() => undefined);
   const pendingSessionStartRef = useRef(false);
+  const pendingResumeSessionIdRef = useRef<string | null>(null);
   const latestSessionRef = useRef<{
     sessionId: string | null;
     sessionStatus: typeof sessionStatus;
@@ -241,7 +242,9 @@ export function useSessionLifecycle() {
     }
 
     pendingSessionStartRef.current = false;
-    startSessionRef.current();
+    const resumeSessionId = pendingResumeSessionIdRef.current ?? undefined;
+    pendingResumeSessionIdRef.current = null;
+    startSessionRef.current(resumeSessionId);
   }, [connectionStatus, sessionId]);
 
   useEffect(() => {
@@ -263,32 +266,41 @@ export function useSessionLifecycle() {
     stopPreview();
   }, [inputSource, sessionId, startPreview, stopPreview, visionEnabled]);
 
-  const startSession = useCallback(async () => {
+  const startSession = useCallback(
+    async (resumeSessionId?: string) => {
     if (visionEnabled) {
       await startPreview(inputSource);
     }
-    appendUserMessage("准备开始新一轮多模态对话，请说出你的问题，我会结合当前画面一起理解。");
+    appendUserMessage(
+      resumeSessionId
+        ? `已恢复会话 ${resumeSessionId.slice(0, 8)}，可以继续说话，我会结合当前画面与历史上下文回复。`
+        : "准备开始新一轮多模态对话，请说出你的问题，我会结合当前画面一起理解。",
+    );
     client.send({
       type: "session.start",
+      ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
       inputSource,
       deviceInfo: {
         micLabel: "Default microphone",
         cameraLabel: inputSource === "screen" ? "Screen share" : "Default camera",
       },
     });
-  }, [appendUserMessage, client, inputSource, startPreview, visionEnabled]);
+    },
+    [appendUserMessage, client, inputSource, startPreview, visionEnabled],
+  );
 
   useEffect(() => {
-    startSessionRef.current = () => {
-      void startSession();
+    startSessionRef.current = (resumeSessionId?: string) => {
+      void startSession(resumeSessionId);
     };
   }, [startSession]);
 
-  const closeSession = () => {
+  const closeSession = useCallback(() => {
     if (!sessionId) {
       return;
     }
     pendingSessionStartRef.current = false;
+    pendingResumeSessionIdRef.current = null;
     autoStartingCaptureRef.current = false;
     stopCapture();
     stopAssistantSpeech();
@@ -296,26 +308,32 @@ export function useSessionLifecycle() {
       type: "session.end",
       sessionId,
     });
-  };
+  }, [client, sessionId, stopAssistantSpeech, stopCapture]);
 
-  const reconnect = () => {
+  const reconnect = useCallback(() => {
     client.disconnect();
     client.connect();
-  };
+  }, [client]);
 
-  const requestSessionStart = () => {
+  const requestSessionStart = useCallback(
+    (resumeSessionId?: string) => {
     pendingSessionStartRef.current = true;
+    pendingResumeSessionIdRef.current = resumeSessionId ?? null;
 
     if (connectionStatus === "connected") {
       pendingSessionStartRef.current = false;
-      void startSession();
+      const nextResumeSessionId = pendingResumeSessionIdRef.current ?? undefined;
+      pendingResumeSessionIdRef.current = null;
+      void startSession(nextResumeSessionId);
       return;
     }
 
     if (connectionStatus !== "connecting") {
       reconnect();
     }
-  };
+    },
+    [connectionStatus, reconnect, startSession],
+  );
 
   return {
     connectionStatus,

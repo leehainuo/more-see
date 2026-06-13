@@ -32,6 +32,7 @@ type SessionState = {
   visionSummary: string;
   assistantAudioStatus: AssistantAudioStatus;
   keyframes: Keyframe[];
+  lastFrameStoredId: string | null;
   setConnectionStatus: (status: ConnectionStatus) => void;
   setRecordingState: (status: "recording" | "recognizing" | "transcribing" | "ready", level?: number) => void;
   setRecordedChunks: (count: number) => void;
@@ -40,6 +41,7 @@ type SessionState = {
   setVisionStatus: (status: VisionStatus, systemMessage?: string) => void;
   addLocalKeyframe: (frame: Keyframe) => void;
   resetMessages: () => void;
+  hydrateHistoryTurns: (turns: Array<{ userText: string; assistantText: string; visionSummary?: string | null }>) => void;
   appendUserMessage: (content: string) => void;
   markAssistantAudioPlaybackComplete: () => void;
   handleServerEvent: (event: ServerEvent) => void;
@@ -61,6 +63,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   visionSummary: "",
   assistantAudioStatus: "idle",
   keyframes: [],
+  lastFrameStoredId: null,
 
   setConnectionStatus: (status) => {
     set({
@@ -146,7 +149,39 @@ export const useSessionStore = create<SessionState>((set) => ({
       visionSummary: "",
       assistantAudioStatus: "idle",
       keyframes: [],
+      lastFrameStoredId: null,
     });
+  },
+
+  hydrateHistoryTurns: (turns) => {
+    set((state) => ({
+      messages: turns.flatMap((turn) => {
+        const next: ChatMessage[] = [];
+        if (turn.userText) {
+          next.push({
+            id: crypto.randomUUID(),
+            role: "user",
+            content: turn.userText,
+          });
+        }
+        if (turn.assistantText) {
+          next.push({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: turn.assistantText,
+          });
+        }
+        if (turn.visionSummary) {
+          next.push({
+            id: crypto.randomUUID(),
+            role: "system",
+            content: `视觉摘要：${turn.visionSummary}`,
+          });
+        }
+        return next;
+      }),
+      systemMessage: state.sessionId ? state.systemMessage : "已加载历史会话内容，可以继续对话。",
+    }));
   },
 
   appendUserMessage: (content) => {
@@ -225,6 +260,7 @@ export const useSessionStore = create<SessionState>((set) => ({
           return {
             visionStatus: "summarizing",
             systemMessage: event.message,
+            lastFrameStoredId: event.frameId,
           };
 
         case "vision.result":
@@ -357,6 +393,7 @@ export const useSessionStore = create<SessionState>((set) => ({
             visionSummary: "",
             assistantAudioStatus: "idle",
             keyframes: [],
+            lastFrameStoredId: null,
             systemMessage: "会话已关闭，可以重新开始。",
           };
 

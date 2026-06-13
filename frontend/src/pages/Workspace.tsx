@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, Camera, Monitor } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
+import { fetchSessionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -75,12 +78,18 @@ function ConversationBubble({ message }: { message: DisplayMessage }) {
 }
 
 export default function Workspace() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const resumeSessionId = searchParams.get("sessionId");
   const messages = useSessionStore((state) => state.messages);
+  const lastFrameStoredId = useSessionStore((state) => state.lastFrameStoredId);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const setVisionEnabled = useSessionStore((state) => state.setVisionEnabled);
   const systemMessage = useSessionStore((state) => state.systemMessage);
   const visionStatus = useSessionStore((state) => state.visionStatus);
+  const resetMessages = useSessionStore((state) => state.resetMessages);
+  const hydrateHistoryTurns = useSessionStore((state) => state.hydrateHistoryTurns);
   const [isCapturePending, setIsCapturePending] = useState(false);
+  const lastToastedFrameStoredIdRef = useRef<string | null>(null);
   const {
     sessionId,
     sessionStatus,
@@ -137,6 +146,64 @@ export default function Workspace() {
       setVisionEnabled(true);
     }
   }, [setVisionEnabled, visionEnabled]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    if (!lastFrameStoredId) {
+      return;
+    }
+
+    if (lastToastedFrameStoredIdRef.current === lastFrameStoredId) {
+      return;
+    }
+
+    lastToastedFrameStoredIdRef.current = lastFrameStoredId;
+    toast.success("关键帧已上传，可以放下", {
+      description: "已上传到服务器，AI 正在基于这张画面理解。",
+      duration: 2200,
+    });
+  }, [lastFrameStoredId, sessionId]);
+
+  useEffect(() => {
+    if (!resumeSessionId || sessionId) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      resetMessages();
+      try {
+        const detail = await fetchSessionDetail(resumeSessionId);
+        if (cancelled) {
+          return;
+        }
+        hydrateHistoryTurns(detail.turns);
+        setInputSource(detail.inputSource === "screen" ? "screen" : "camera");
+      } catch {
+        if (cancelled) {
+          return;
+        }
+      } finally {
+        if (!cancelled) {
+          requestSessionStart(resumeSessionId);
+          setSearchParams({}, { replace: true });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hydrateHistoryTurns,
+    requestSessionStart,
+    resetMessages,
+    resumeSessionId,
+    sessionId,
+    setInputSource,
+    setSearchParams,
+  ]);
 
   const handleSessionToggle = () => {
     if (sessionId) {
