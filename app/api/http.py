@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.auth.deps import get_current_user_id
+from app.auth.deps import get_current_user_id, require_super_user_id
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.persistence.repository import persistence_repository
+from app.services.cost_service import estimate_asr_cost_yuan, estimate_tts_cost_yuan
 from app.services.provider_health_service import get_provider_health
 from app.services.tts_service import tts_service
 
@@ -64,7 +65,7 @@ async def register(payload: AuthRegisterRequest) -> JSONResponse:
     )
     if user is None:
         raise HTTPException(status_code=500, detail="注册失败")
-    return JSONResponse(content={"userId": user.id, "username": user.username})
+    return JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
 
 
 @router.post("/api/auth/login")
@@ -80,7 +81,7 @@ async def login(payload: AuthLoginRequest) -> JSONResponse:
     elif not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = create_access_token(user_id=user.id)
-    result = JSONResponse(content={"userId": user.id, "username": user.username})
+    result = JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
     result.set_cookie(
         key=settings.auth_cookie_name,
         value=token,
@@ -101,14 +102,107 @@ async def logout() -> JSONResponse:
 
 @router.get("/api/auth/me")
 async def me(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
-    return JSONResponse(content={"userId": user_id})
+    user = await persistence_repository.get_user_by_id(user_id=user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    return JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
+
+
+@router.get("/api/admin/costs/sessions")
+async def list_cost_sessions(
+    _user_id: int = Depends(require_super_user_id),
+    page: int = Query(default=1, ge=1),
+    pageSize: int = Query(default=10, ge=1, le=50),
+) -> JSONResponse:
+    total = await persistence_repository.count_all_sessions()
+    offset = (page - 1) * pageSize
+    rows = await persistence_repository.list_all_sessions_with_details(limit=pageSize, offset=offset)
+    items = []
+    for row in rows:
+        turns = sorted(row.turns, key=lambda item: item.created_at)
+        frames = sorted(row.frames, key=lambda item: item.created_at)
+        asr_duration_ms = sum(int(getattr(turn, "asr_duration_ms", 0) or 0) for turn in turns)
+        tts_char_count = sum(int(getattr(turn, "tts_char_count", 0) or 0) for turn in turns)
+        items.append(
+            {
+                "sessionId": row.session_id,
+                "inputSource": row.input_source,
+                "createdAt": row.created_at.isoformat(),
+                "updatedAt": row.updated_at.isoformat(),
+                "endedAt": row.ended_at.isoformat() if row.ended_at else None,
+                "asrDurationMs": asr_duration_ms,
+                "ttsCharCount": tts_char_count,
+                "asrCostYuan": estimate_asr_cost_yuan(duration_ms=asr_duration_ms),
+                "ttsCostYuan": estimate_tts_cost_yuan(char_count=tts_char_count),
+                "visionFrameCount": len(frames),
+                "visionCacheHitCount": sum(1 for frame in frames if int(getattr(frame, "cache_hit", 0) or 0) == 1),
+            }
+        )
+    return JSONResponse(content={"page": page, "pageSize": pageSize, "total": total, "items": items})
+
+
+@router.get("/api/admin/costs/sessions/{session_id}")
+async def get_cost_session_detail(session_id: str, _user_id: int = Depends(require_super_user_id)) -> JSONResponse:
+    row = await persistence_repository.get_session_detail_admin(session_id=session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    turns = sorted(row.turns, key=lambda item: item.created_at)
+    frames = sorted(row.frames, key=lambda item: item.created_at)
+    items = []
+    session_asr_duration_ms = 0
+    session_tts_char_count = 0
+    for turn in turns:
+        asr_duration_ms = int(getattr(turn, "asr_duration_ms", 0) or 0)
+        tts_char_count = int(getattr(turn, "tts_char_count", 0) or 0)
+        session_asr_duration_ms += asr_duration_ms
+        session_tts_char_count += tts_char_count
+        items.append(
+            {
+                "turnId": turn.turn_id,
+                "createdAt": turn.created_at.isoformat(),
+                "userText": turn.user_text,
+                "assistantText": turn.assistant_text,
+                "visionSummary": turn.vision_summary,
+                "asrDurationMs": asr_duration_ms,
+                "asrProvider": getattr(turn, "asr_provider", None),
+                "ttsCharCount": tts_char_count,
+                "ttsProvider": getattr(turn, "tts_provider", None),
+                "asrCostYuan": estimate_asr_cost_yuan(duration_ms=asr_duration_ms),
+                "ttsCostYuan": estimate_tts_cost_yuan(char_count=tts_char_count),
+            }
+        )
+    return JSONResponse(
+        content={
+            "sessionId": row.session_id,
+            "inputSource": row.input_source,
+            "createdAt": row.created_at.isoformat(),
+            "updatedAt": row.updated_at.isoformat(),
+            "endedAt": row.ended_at.isoformat() if row.ended_at else None,
+            "asrDurationMs": session_asr_duration_ms,
+            "ttsCharCount": session_tts_char_count,
+            "asrCostYuan": estimate_asr_cost_yuan(duration_ms=session_asr_duration_ms),
+            "ttsCostYuan": estimate_tts_cost_yuan(char_count=session_tts_char_count),
+            "visionFrameCount": len(frames),
+            "visionCacheHitCount": sum(1 for frame in frames if int(getattr(frame, "cache_hit", 0) or 0) == 1),
+            "turns": items,
+        }
+    )
 
 
 @router.get("/api/sessions")
-async def list_sessions(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
-    rows = await persistence_repository.list_sessions(user_id=user_id, limit=50, offset=0)
+async def list_sessions(
+    user_id: int = Depends(get_current_user_id),
+    page: int = Query(default=1, ge=1),
+    pageSize: int = Query(default=10, ge=1, le=50),
+) -> JSONResponse:
+    total = await persistence_repository.count_sessions(user_id=user_id)
+    offset = (page - 1) * pageSize
+    rows = await persistence_repository.list_sessions(user_id=user_id, limit=pageSize, offset=offset)
     return JSONResponse(
         content={
+            "page": page,
+            "pageSize": pageSize,
+            "total": total,
             "items": [
                 {
                     "sessionId": row.session_id,

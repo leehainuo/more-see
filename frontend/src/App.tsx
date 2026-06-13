@@ -6,6 +6,7 @@ import History from "@/pages/History";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Workspace from "@/pages/Workspace";
+import Costs from "@/pages/Costs";
 import { Toaster } from "@/components/ui/sonner";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -50,6 +51,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <History />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/costs"
+            element={
+              <RequireAuth>
+                <Costs />
               </RequireAuth>
             }
           />

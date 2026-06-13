@@ -6,6 +6,7 @@ import re
 from fastapi import WebSocket
 
 from app.adapters.llm_adapter import llm_adapter
+from app.config import settings
 from app.persistence.service import persistence_service
 from app.state.session_store import session_store
 from app.services.tts_service import tts_service
@@ -24,6 +25,8 @@ class ConversationService:
         transcript: str,
         vision_summary: str | None = None,
         force_no_vision: bool = False,
+        asr_duration_ms: int = 0,
+        asr_provider: str | None = None,
     ) -> None:
         history_turns = session_store.get_recent_turns(session_id, limit=3)
         session_store.save_turn(
@@ -90,6 +93,10 @@ class ConversationService:
                 user_text=transcript,
                 assistant_text=full_text,
                 vision_summary=vision_summary,
+                asr_duration_ms=asr_duration_ms,
+                asr_provider=asr_provider,
+                tts_char_count=len(full_text),
+                tts_provider="volcengine" if settings.tts_provider == "volcengine" else "fallback",
             )
 
             await websocket.send_json(

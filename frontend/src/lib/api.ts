@@ -13,11 +13,53 @@ export type TtsSynthesizeResponse = {
 
 export type AuthMeResponse = {
   userId: number;
+  username: string;
+  isSuper: 0 | 1;
 };
 
 export type AuthLoginResponse = {
   userId: number;
   username: string;
+  isSuper: 0 | 1;
+};
+
+export type AdminCostSessionItem = {
+  sessionId: string;
+  inputSource: string;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+  asrDurationMs: number;
+  ttsCharCount: number;
+  asrCostYuan: number;
+  ttsCostYuan: number;
+  visionFrameCount: number;
+  visionCacheHitCount: number;
+};
+
+export type AdminCostSessionsResponse = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: AdminCostSessionItem[];
+};
+
+export type AdminCostTurnItem = {
+  turnId: string;
+  createdAt: string;
+  userText: string;
+  assistantText: string;
+  visionSummary: string | null;
+  asrDurationMs: number;
+  asrProvider: string | null;
+  ttsCharCount: number;
+  ttsProvider: string | null;
+  asrCostYuan: number;
+  ttsCostYuan: number;
+};
+
+export type AdminCostSessionDetailResponse = AdminCostSessionItem & {
+  turns: AdminCostTurnItem[];
 };
 
 export type SessionListItem = {
@@ -29,6 +71,9 @@ export type SessionListItem = {
 };
 
 export type SessionListResponse = {
+  page: number;
+  pageSize: number;
+  total: number;
   items: SessionListItem[];
 };
 
@@ -108,14 +153,29 @@ export async function loginOrRegister(username: string, password: string): Promi
   });
 }
 
+export async function fetchAdminCostSessions(params?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<AdminCostSessionsResponse> {
+  const page = params?.page ?? 1;
+  const pageSize = params?.pageSize ?? 10;
+  return fetchJson<AdminCostSessionsResponse>(`/api/admin/costs/sessions?page=${page}&pageSize=${pageSize}`);
+}
+
+export async function fetchAdminCostSessionDetail(sessionId: string): Promise<AdminCostSessionDetailResponse> {
+  return fetchJson<AdminCostSessionDetailResponse>(`/api/admin/costs/sessions/${encodeURIComponent(sessionId)}`);
+}
+
 export async function logout(): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>("/api/auth/logout", {
     method: "POST",
   });
 }
 
-export async function fetchSessions(): Promise<SessionListResponse> {
-  return fetchJson<SessionListResponse>("/api/sessions");
+export async function fetchSessions(params?: { page?: number; pageSize?: number }): Promise<SessionListResponse> {
+  const page = params?.page ?? 1;
+  const pageSize = params?.pageSize ?? 10;
+  return fetchJson<SessionListResponse>(`/api/sessions?page=${page}&pageSize=${pageSize}`);
 }
 
 export async function fetchSessionDetail(sessionId: string): Promise<SessionDetailResponse> {

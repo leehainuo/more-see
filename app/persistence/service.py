@@ -57,6 +57,10 @@ class PersistenceService:
         user_text: str,
         assistant_text: str,
         vision_summary: str | None,
+        asr_duration_ms: int,
+        asr_provider: str | None,
+        tts_char_count: int,
+        tts_provider: str | None,
     ) -> None:
         asyncio.create_task(
             self._safe_call(
@@ -66,6 +70,10 @@ class PersistenceService:
                     user_text=user_text,
                     assistant_text=assistant_text,
                     vision_summary=vision_summary,
+                    asr_duration_ms=asr_duration_ms,
+                    asr_provider=asr_provider,
+                    tts_char_count=tts_char_count,
+                    tts_provider=tts_provider,
                 )
             )
         )

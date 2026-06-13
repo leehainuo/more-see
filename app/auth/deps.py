@@ -32,8 +32,14 @@ async def get_current_user_id_ws(websocket: WebSocket) -> int:
     return user_id
 
 
+async def require_super_user_id(user_id: int = Depends(get_current_user_id)) -> int:
+    user = await persistence_repository.get_user_by_id(user_id=user_id)
+    if user is None or int(getattr(user, "is_super", 0)) != 1:
+        raise HTTPException(status_code=403, detail="无权限访问")
+    return user_id
+
+
 async def ensure_session_belongs_to_user(*, user_id: int, session_id: str) -> None:
     row = await persistence_repository.get_session_detail(user_id=user_id, session_id=session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-

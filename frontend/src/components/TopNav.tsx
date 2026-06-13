@@ -4,16 +4,18 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/useAuthStore";
 
-const navItems = [
-  { to: "/", label: "首页", end: true },
-  { to: "/workspace", label: "聊天" },
-  { to: "/history", label: "记录" },
-];
-
 export function TopNav() {
   const navigate = useNavigate();
   const status = useAuthStore((state) => state.status);
   const logout = useAuthStore((state) => state.logout);
+  const isSuper = useAuthStore((state) => state.isSuper);
+
+  const navItems = [
+    { to: "/", label: "首页", end: true },
+    { to: "/workspace", label: "聊天" },
+    { to: "/history", label: "记录" },
+    ...(isSuper === 1 ? [{ to: "/costs", label: "成本" }] : []),
+  ];
 
   const handleLogout = async () => {
     await logout();

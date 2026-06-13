@@ -12,6 +12,10 @@ export default function History() {
   const selectedSessionId = searchParams.get("sessionId");
   const [items, setItems] = useState<SessionListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [total, setTotal] = useState(0);
   const [selectedDetail, setSelectedDetail] = useState<SessionDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,10 +26,12 @@ export default function History() {
     setError(null);
     void (async () => {
       try {
-        const result = await fetchSessions();
+        const result = await fetchSessions({ page: 1, pageSize });
         if (cancelled) {
           return;
         }
+        setPage(result.page);
+        setTotal(result.total);
         setItems(result.items);
       } catch (exc) {
         if (cancelled) {
@@ -42,6 +48,27 @@ export default function History() {
       cancelled = true;
     };
   }, []);
+
+  const canLoadMore = items.length < total;
+
+  async function handleLoadMore() {
+    if (loadingMore || loading || !canLoadMore) {
+      return;
+    }
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const nextPage = page + 1;
+      const result = await fetchSessions({ page: nextPage, pageSize });
+      setPage(result.page);
+      setTotal(result.total);
+      setItems((prev) => [...prev, ...result.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId))]);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "加载失败");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -106,23 +133,36 @@ export default function History() {
                       正在加载会话列表...
                     </div>
                   ) : items.length ? (
-                    items.map((item) => (
-                      <button
-                        key={item.sessionId}
-                        type="button"
-                        onClick={() => setSearchParams({ sessionId: item.sessionId })}
-                        className={`rounded-[20px] border px-4 py-4 text-left transition-colors ${
-                          item.sessionId === selectedSessionId
-                            ? "border-black/20 bg-black/[0.03]"
-                            : "border-black/10 bg-white hover:bg-black/[0.02]"
-                        }`}
-                      >
-                        <p className="text-sm font-medium text-black">{item.sessionId.slice(0, 12)}</p>
-                        <p className="mt-2 text-xs text-zinc-500">
-                          {item.inputSource} · 更新 {new Date(item.updatedAt).toLocaleString()}
-                        </p>
-                      </button>
-                    ))
+                    <>
+                      {items.map((item) => (
+                        <button
+                          key={item.sessionId}
+                          type="button"
+                          onClick={() => setSearchParams({ sessionId: item.sessionId })}
+                          className={`rounded-[20px] border px-4 py-4 text-left transition-colors ${
+                            item.sessionId === selectedSessionId
+                              ? "border-black/20 bg-black/[0.03]"
+                              : "border-black/10 bg-white hover:bg-black/[0.02]"
+                          }`}
+                        >
+                          <p className="text-sm font-medium text-black">{item.sessionId.slice(0, 12)}</p>
+                          <p className="mt-2 text-xs text-zinc-500">
+                            {item.inputSource} · 更新 {new Date(item.updatedAt).toLocaleString()}
+                          </p>
+                        </button>
+                      ))}
+                      <div className="pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full"
+                          disabled={!canLoadMore || loadingMore}
+                          onClick={handleLoadMore}
+                        >
+                          {loadingMore ? "正在加载..." : canLoadMore ? "加载更多" : "没有更多了"}
+                        </Button>
+                      </div>
+                    </>
                   ) : (
                     <div className="rounded-[20px] border border-black/10 bg-black/[0.02] p-4 text-sm text-zinc-600">
                       暂无会话记录
