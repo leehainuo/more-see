@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
@@ -260,7 +261,29 @@ def test_turn_commit_without_audio_returns_error() -> None:
         assert error_event["code"] == "empty_audio"
 
 
-def test_asr_partial_request_returns_disabled_status() -> None:
+def test_asr_partial_request_confirms_and_interrupts(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = {"value": False}
+
+    async def fake_handle_turn_commit(_websocket, payload):
+        session_store.set_assistant_speaking(payload["sessionId"], True)
+        session_store.set_assistant_transcript(payload["sessionId"], "我先继续讲一下当前页面")
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled["value"] = True
+            raise
+
+    async def fake_transcribe_partial(_chunks):
+        return {
+            "transcript": "打断一下我补充一下情况",
+            "provider": "volcengine",
+            "durationMs": 480,
+            "chunkCount": 3,
+        }
+
+    monkeypatch.setattr(audio_service, "handle_turn_commit", fake_handle_turn_commit)
+    monkeypatch.setattr(asr_adapter, "transcribe_partial", fake_transcribe_partial)
+
     with client.websocket_connect("/ws/session") as websocket:
         websocket.receive_json()
         websocket.send_json(
@@ -272,6 +295,16 @@ def test_asr_partial_request_returns_disabled_status() -> None:
 
         ready_event = websocket.receive_json()
         websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "turn.commit",
+                "sessionId": ready_event["sessionId"],
+                "turnId": "turn-barge-in",
+                "silenceMs": 1200,
+                "includeVision": False,
+            }
+        )
 
         websocket.send_json(
             {
@@ -293,6 +326,16 @@ def test_asr_partial_request_returns_disabled_status() -> None:
                 "durationMs": 240,
             }
         )
+        websocket.send_json(
+            {
+                "type": "audio.chunk",
+                "sessionId": ready_event["sessionId"],
+                "chunkId": "chunk-p-3",
+                "mimeType": "audio/pcm;rate=16000",
+                "base64Audio": "dGVzdA==",
+                "durationMs": 240,
+            }
+        )
         session_store.set_assistant_speaking(ready_event["sessionId"], True)
         session_store.set_assistant_transcript(ready_event["sessionId"], "这是 AI 正在播报的内容")
 
@@ -304,9 +347,66 @@ def test_asr_partial_request_returns_disabled_status() -> None:
             }
         )
         partial_event = websocket.receive_json()
+        assert partial_event["type"] == "asr.partial"
+        assert partial_event["verdict"] == "confirmed"
 
-        assert partial_event["type"] == "session.status"
-        assert "已关闭打断功能" in partial_event["message"]
+        interrupted_event = websocket.receive_json()
+        assert interrupted_event["type"] == "assistant.interrupted"
+        assert interrupted_event["turnId"] == "turn-barge-in"
+
+    assert cancelled["value"] is True
+
+
+def test_assistant_interrupt_cancels_active_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = {"value": False}
+
+    async def fake_handle_turn_commit(_websocket, _payload):
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled["value"] = True
+            raise
+
+    monkeypatch.setattr(audio_service, "handle_turn_commit", fake_handle_turn_commit)
+
+    with client.websocket_connect("/ws/session") as websocket:
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "session.start",
+                "inputSource": "camera",
+            }
+        )
+        ready_event = websocket.receive_json()
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "turn.commit",
+                "sessionId": ready_event["sessionId"],
+                "turnId": "turn-interrupt",
+                "silenceMs": 1200,
+                "includeVision": False,
+            }
+        )
+
+        websocket.send_json(
+            {
+                "type": "assistant.interrupt",
+                "sessionId": ready_event["sessionId"],
+                "reason": "barge_in",
+            }
+        )
+
+        event = websocket.receive_json()
+        if event["type"] == "session.status":
+            event = websocket.receive_json()
+        assert event["type"] == "assistant.interrupted"
+        assert event["sessionId"] == ready_event["sessionId"]
+        assert event["turnId"] == "turn-interrupt"
+        assert event["reason"] == "barge_in"
+
+    assert cancelled["value"] is True
 
 
 @pytest.mark.asyncio
@@ -323,11 +423,11 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
             {
                 "transcript": "等等",
                 "provider": "volcengine",
-                "durationMs": 320,
-                "chunkCount": 2,
+                "durationMs": 480,
+                "chunkCount": 3,
             },
             {
-                "transcript": "等等我补充一下",
+                "transcript": "等等我补充一下这个点",
                 "provider": "volcengine",
                 "durationMs": 480,
                 "chunkCount": 3,
@@ -342,6 +442,7 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
 
     session_store.add_audio_chunk(session_id, "chunk-1", "audio/pcm;rate=16000", "dGVzdA==", 160)
     session_store.add_audio_chunk(session_id, "chunk-2", "audio/pcm;rate=16000", "dGVzdA==", 160)
+    session_store.add_audio_chunk(session_id, "chunk-4", "audio/pcm;rate=16000", "dGVzdA==", 160)
 
     assert audio_service.should_probe_barge_in(session_id) is True
     candidate = await audio_service.probe_barge_in(session_id)
@@ -357,6 +458,6 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
 
     assert confirmed is not None
     assert confirmed["verdict"] == "confirmed"
-    assert confirmed["transcript"] == "等等我补充一下"
+    assert confirmed["transcript"] == "等等我补充一下这个点"
 
     session_store.remove_session(session_id)

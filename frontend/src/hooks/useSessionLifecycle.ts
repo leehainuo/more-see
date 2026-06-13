@@ -23,9 +23,12 @@ export function useSessionLifecycle() {
   const pcmPlayerRef = useRef<StreamingPcmPlayer | null>(null);
   const playbackPhaseRef = useRef<"idle" | "loading" | "playing">("idle");
   const autoStartingCaptureRef = useRef(false);
+  const suppressTtsPlaybackRef = useRef(false);
   const startSessionRef = useRef<(resumeSessionId?: string) => void>(() => undefined);
   const tryStartHandsFreeCaptureRef = useRef<() => void>(() => undefined);
   const stopAssistantSpeechRef = useRef<() => void>(() => undefined);
+  const bargeInProbeTimerRef = useRef<number | null>(null);
+  const bargeInProbeSeqRef = useRef(0);
   const pendingSessionStartRef = useRef(false);
   const pendingResumeSessionIdRef = useRef<string | null>(null);
   const latestSessionRef = useRef<{
@@ -57,6 +60,40 @@ export function useSessionLifecycle() {
     playbackPhaseRef.current = "idle";
     pcmPlayerRef.current?.stop();
   }, []);
+
+  const stopBargeInProbe = useCallback(() => {
+    if (bargeInProbeTimerRef.current) {
+      window.clearInterval(bargeInProbeTimerRef.current);
+      bargeInProbeTimerRef.current = null;
+    }
+  }, []);
+
+  const onBargeInProbe = useCallback(
+    (activeSessionId: string) => {
+      if (bargeInProbeTimerRef.current) {
+        return;
+      }
+      suppressTtsPlaybackRef.current = true;
+      stopAssistantSpeechRef.current();
+
+      const sendProbe = () => {
+        try {
+          bargeInProbeSeqRef.current += 1;
+          client.send({
+            type: "asr.partial.request",
+            sessionId: activeSessionId,
+            requestId: `barge-${bargeInProbeSeqRef.current}`,
+          });
+        } catch {
+          stopBargeInProbe();
+        }
+      };
+
+      sendProbe();
+      bargeInProbeTimerRef.current = window.setInterval(sendProbe, 260);
+    },
+    [client, stopBargeInProbe],
+  );
 
   const sendAudioChunk = (payload: {
     sessionId: string;
@@ -117,6 +154,20 @@ export function useSessionLifecycle() {
     sessionId,
     inputSource,
     visionEnabled,
+    onBargeInProbe,
+    onUserSpeechActivity: (active) => {
+      if (!active) {
+        return;
+      }
+      if (useSessionStore.getState().assistantAudioStatus !== "speaking") {
+        return;
+      }
+      suppressTtsPlaybackRef.current = true;
+      stopAssistantSpeechRef.current();
+      useSessionStore.setState({
+        systemMessage: "检测到你正在说话，已停止 AI 播报并开始新一轮录音。",
+      });
+    },
     sendAudioChunk,
     commitTurn,
     captureFrameForTurn,
@@ -130,6 +181,12 @@ export function useSessionLifecycle() {
       assistantAudioStatus,
     };
   }, [assistantAudioStatus, isCapturing, sessionId, sessionStatus]);
+
+  useEffect(() => {
+    if (assistantAudioStatus !== "speaking") {
+      stopBargeInProbe();
+    }
+  }, [assistantAudioStatus, stopBargeInProbe]);
 
   const tryStartHandsFreeCapture = useCallback(async () => {
     const current = latestSessionRef.current;
@@ -169,11 +226,15 @@ export function useSessionLifecycle() {
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
       if (event.type === "tts.start") {
+        suppressTtsPlaybackRef.current = false;
         speechTokenRef.current += 1;
         playbackPhaseRef.current = "loading";
         ensurePcmPlayer().stop();
       }
       if (event.type === "tts.chunk") {
+        if (suppressTtsPlaybackRef.current) {
+          return;
+        }
         if (event.mimeType !== "audio/pcm") {
           useSessionStore.setState({
             systemMessage: `暂不支持 ${event.mimeType} 的流式播放格式。`,
@@ -184,11 +245,20 @@ export function useSessionLifecycle() {
         void ensurePcmPlayer().appendChunk(event.audioBase64, event.sampleRate);
       }
       if (event.type === "tts.done") {
+        if (suppressTtsPlaybackRef.current) {
+          useSessionStore.getState().markAssistantAudioPlaybackComplete();
+          return;
+        }
         if (playbackPhaseRef.current === "idle") {
           useSessionStore.getState().markAssistantAudioPlaybackComplete();
         }
       }
       if (event.type === "assistant.interrupted") {
+        stopBargeInProbe();
+        stopAssistantSpeechRef.current();
+      }
+      if (event.type === "asr.partial" && event.verdict === "confirmed") {
+        stopBargeInProbe();
         stopAssistantSpeechRef.current();
       }
     });
@@ -196,18 +266,20 @@ export function useSessionLifecycle() {
 
     return () => {
       stopAssistantSpeechRef.current();
+      stopBargeInProbe();
       pcmPlayerRef.current?.setOnIdle(null);
       pcmPlayerRef.current?.dispose();
       pcmPlayerRef.current = null;
       client.disconnect();
     };
-  }, [client, ensurePcmPlayer]);
+  }, [client, ensurePcmPlayer, stopBargeInProbe]);
 
   useEffect(() => {
     if (sessionStatus === "closed" || sessionStatus === "error") {
       stopAssistantSpeech();
+      stopBargeInProbe();
     }
-  }, [sessionStatus, stopAssistantSpeech]);
+  }, [sessionStatus, stopAssistantSpeech, stopBargeInProbe]);
 
   useEffect(() => {
     if (connectionStatus !== "connected" || !sessionId) {
@@ -252,19 +324,15 @@ export function useSessionLifecycle() {
       return;
     }
     stopCapture();
-    stopPreview();
-  }, [sessionId, stopCapture, stopPreview]);
+  }, [sessionId, stopCapture]);
 
   useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
     if (visionEnabled) {
       void startPreview(inputSource);
       return;
     }
     stopPreview();
-  }, [inputSource, sessionId, startPreview, stopPreview, visionEnabled]);
+  }, [inputSource, startPreview, stopPreview, visionEnabled]);
 
   const startSession = useCallback(
     async (resumeSessionId?: string) => {

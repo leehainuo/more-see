@@ -42,17 +42,19 @@ async def session_ws(websocket: WebSocket) -> None:
         nonlocal active_turn_task, active_turn_session_id, active_turn_id
         if active_turn_task is None or active_turn_task.done():
             return
+        interrupted_session_id = active_turn_session_id
+        interrupted_turn_id = active_turn_id
         active_turn_task.cancel()
         try:
             await active_turn_task
         except asyncio.CancelledError:
             pass
-        if active_turn_session_id and active_turn_id:
+        if interrupted_session_id and interrupted_turn_id:
             await websocket.send_json(
                 {
                     "type": "assistant.interrupted",
-                    "sessionId": active_turn_session_id,
-                    "turnId": active_turn_id,
+                    "sessionId": interrupted_session_id,
+                    "turnId": interrupted_turn_id,
                     "reason": reason,
                 }
             )
@@ -152,23 +154,24 @@ async def session_ws(websocket: WebSocket) -> None:
             elif event_type == "session.ping":
                 await session_service.handle_ping(websocket, data)
             elif event_type == "assistant.interrupt":
+                await cancel_active_turn("barge_in")
                 await websocket.send_json(
                     {
                         "type": "session.status",
                         "sessionId": data.get("sessionId"),
                         "level": "info",
-                        "message": "当前已关闭打断功能，AI 会在播报完成后继续监听。",
+                        "message": "已停止当前播报，开始监听你的下一轮发言。",
                     }
                 )
             elif event_type == "asr.partial.request":
-                await websocket.send_json(
-                    {
-                        "type": "session.status",
-                        "sessionId": data.get("sessionId"),
-                        "level": "info",
-                        "message": "当前已关闭打断功能，不再执行实时打断检测。",
-                    }
-                )
+                session_id = data.get("sessionId")
+                if not session_id:
+                    continue
+                if not audio_service.should_probe_barge_in(str(session_id)):
+                    continue
+                result = await audio_service.handle_partial_request(websocket, data)
+                if result is not None and result.get("verdict") == "confirmed":
+                    await cancel_active_turn("barge_in")
             elif event_type == "session.end":
                 await cancel_active_turn("session_end")
                 if data.get("sessionId"):

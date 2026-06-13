@@ -14,10 +14,11 @@ from app.services.conversation_service import conversation_service
 from app.services.vision_service import vision_service
 
 logger = logging.getLogger(__name__)
-_PARTIAL_MIN_DURATION_MS = 300
-_PARTIAL_MIN_CHUNKS = 2
-_BARGE_IN_CONFIRM_HITS = 2
-_BARGE_IN_LONG_PARTIAL_LEN = 6
+uvicorn_logger = logging.getLogger("uvicorn.error")
+_PARTIAL_MIN_DURATION_MS = 420
+_PARTIAL_MIN_CHUNKS = 3
+_BARGE_IN_CONFIRM_HITS = 3
+_BARGE_IN_LONG_PARTIAL_LEN = 8
 _VISION_TOTAL_BUDGET_SECONDS = 12.0
 _NORMALIZE_TEXT_RE = re.compile(r"""[\s，。！？；：、“”"'`~!@#$%^&*()_+\-=\[\]{};:\\|,.<>/?《》【】（）]""")
 
@@ -166,6 +167,13 @@ class AudioService:
         turn_id = payload.get("turnId", str(uuid.uuid4()))
         include_vision = bool(payload.get("includeVision", False))
         frame_id = payload.get("frameId")
+        if include_vision:
+            uvicorn_logger.warning(
+                "turn.commit include_vision: session_id=%s turn_id=%s frame_id=%s",
+                session_id,
+                turn_id,
+                frame_id,
+            )
         vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
         if include_vision:
             if isinstance(frame_id, str) and frame_id:
@@ -277,15 +285,45 @@ class AudioService:
                 else:
                     vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
             if vision_result is None:
-                await websocket.send_json(
-                    {
-                        "type": "vision.error",
-                        "sessionId": session_id,
-                        "turnId": turn_id,
-                        "code": "vision_not_ready",
-                        "message": "本轮关键帧视觉摘要尚未就绪，本次先基于语音内容回答。",
-                    }
-                )
+                latest_frame = vision_service.get_latest_frame(session_id)
+                if latest_frame is not None and latest_frame.summary_error:
+                    logger.warning(
+                        "vision provider failed: session_id=%s turn_id=%s frame_id=%s error=%s",
+                        session_id,
+                        turn_id,
+                        latest_frame.frame_id,
+                        latest_frame.summary_error,
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "vision.error",
+                            "sessionId": session_id,
+                            "turnId": turn_id,
+                            "code": "vision_provider_failed",
+                            "message": (
+                                "视觉摘要生成失败，可能是额度不足、模型不可用或网络异常。"
+                                f"错误信息：{latest_frame.summary_error}"
+                            ),
+                        }
+                    )
+                    vision_summary = None
+                else:
+                    logger.warning(
+                        "vision not ready: session_id=%s turn_id=%s payload_frame_id=%s has_latest_frame=%s",
+                        session_id,
+                        turn_id,
+                        frame_id,
+                        latest_frame is not None,
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "vision.error",
+                            "sessionId": session_id,
+                            "turnId": turn_id,
+                            "code": "vision_not_ready",
+                            "message": "本轮关键帧视觉摘要尚未就绪，本次先基于语音内容回答。",
+                        }
+                    )
             else:
                 vision_summary = str(vision_result["summary"])
                 logger.info(
@@ -315,15 +353,15 @@ class AudioService:
             asr_provider=str(result.get("provider") or ""),
         )
 
-    async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> None:
+    async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> dict[str, str | int] | None:
         session_id = payload.get("sessionId")
         request_id = str(payload.get("requestId", ""))
         if not session_id or not request_id:
-            return
+            return None
 
         result = await self.probe_barge_in(session_id)
         if result is None:
-            return
+            return None
 
         await websocket.send_json(
             {
@@ -337,6 +375,7 @@ class AudioService:
                 "verdict": result["verdict"],
             }
         )
+        return result
 
 
 audio_service = AudioService()

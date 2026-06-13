@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 from collections import OrderedDict
 
 from fastapi import WebSocket
@@ -10,6 +11,9 @@ from app.adapters.vision_adapter import vision_adapter
 from app.config import settings
 from app.persistence.service import persistence_service
 from app.state.session_store import FrameSnapshot, session_store, utc_now_iso
+
+logger = logging.getLogger(__name__)
+uvicorn_logger = logging.getLogger("uvicorn.error")
 
 
 class VisionService:
@@ -94,6 +98,14 @@ class VisionService:
             )
             return
 
+        uvicorn_logger.warning(
+            "frame.capture received: session_id=%s frame_id=%s input_source=%s image_size=%s",
+            session_id,
+            payload.get("frameId", ""),
+            payload.get("inputSource", "camera"),
+            len(str(payload.get("imageBase64", ""))),
+        )
+
         frame = session_store.add_frame(
             session_id=session_id,
             frame_id=payload.get("frameId", ""),
@@ -166,7 +178,14 @@ class VisionService:
                 await task
             elif frame.summary is None and frame.summary_error is None:
                 await self._summarize_frame(frame)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "vision summarize failed: session_id=%s turn_id=%s frame_id=%s error=%s",
+                session_id,
+                turn_id,
+                frame.frame_id,
+                str(exc),
+            )
             return None
 
         return {

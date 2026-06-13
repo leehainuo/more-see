@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { toast } from "sonner";
+
 import { useSessionStore } from "@/store/useSessionStore";
 
 type InputSource = "camera" | "screen";
@@ -269,9 +271,28 @@ export function useVisualCapture({
 
   const captureFrameForTurn = useCallback(
     async (payload: { sessionId: string; inputSource: InputSource }) => {
+      const waitStartedAt = performance.now();
+      while (performance.now() - waitStartedAt < 1200) {
+        const candidate = mainVideoElementRef.current;
+        if (
+          candidate &&
+          isMainPreviewReady &&
+          candidate.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          (candidate.videoWidth || 0) > 0 &&
+          (candidate.videoHeight || 0) > 0
+        ) {
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+      }
+
       const element = mainVideoElementRef.current;
       if (!element || !isMainPreviewReady || element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        setVisionStatus("error", "当前没有可用的视频画面，本轮将仅返回语音识别结果。");
+        setVisionStatus("preview", "本轮未捕获到可用关键帧，将仅基于语音内容回答。");
+        toast.error("本轮未捕获关键帧", {
+          description: "视频预览尚未就绪或画面不可用。",
+          duration: 1800,
+        });
         return null;
       }
 
@@ -295,6 +316,10 @@ export function useVisualCapture({
           const distance = hammingDistanceHex(fingerprint, previousFingerprint);
           if (distance <= 6) {
             setVisionStatus("preview", "画面变化较小，本轮将复用上一帧视觉摘要以降低延迟与成本。");
+            toast.success("关键帧已复用上一帧", {
+              description: "画面变化较小，本轮不会重复上传关键帧。",
+              duration: 1800,
+            });
             return null;
           }
         }

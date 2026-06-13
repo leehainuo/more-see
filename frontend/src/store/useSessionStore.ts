@@ -224,6 +224,7 @@ export const useSessionStore = create<SessionState>((set) => ({
             sessionStatus: "ready",
             inputSource: event.inputSource,
             visionStatus: state.visionEnabled ? "preview" : "idle",
+            lastFrameStoredId: null,
             systemMessage: `会话 ${event.sessionId.slice(0, 8)} 已接通，正在持续监听。`,
           };
 
