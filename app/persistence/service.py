@@ -14,7 +14,7 @@ class PersistenceService:
         pass
 
     async def ensure_schema(self) -> None:
-        if not settings.mysql_auto_create_tables:
+        if not settings.db_auto_create_tables:
             return
         await persistence_repository.ensure_schema()
 
@@ -130,7 +130,7 @@ class PersistenceService:
         try:
             await coro
         except Exception as exc:
-            logger.warning("mysql persistence failed: %s", exc)
+            logger.warning("persistence failed: %s", exc)
 
 
 persistence_service = PersistenceService()

@@ -31,6 +31,7 @@ class SessionService:
                 input_source=existing.input_source,
                 device_info=existing.device_info,
             )
+            session_store.set_session_summary(session_id, existing.session_summary)
             turns = sorted(existing.turns, key=lambda item: item.created_at)[-3:]
             for turn in turns:
                 session_store.save_turn(session_id, turn.turn_id, turn.user_text, turn.vision_summary)
@@ -43,6 +44,7 @@ class SessionService:
                 input_source=input_source,
                 device_info=device_info,
             )
+            session_store.set_session_summary(session_id, None)
         persistence_service.record_session_started(
             session_id=session.session_id,
             user_id=user_id,

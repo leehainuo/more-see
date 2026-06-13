@@ -15,11 +15,7 @@ def init_engine() -> AsyncEngine:
     if _engine is not None:
         return _engine
 
-    _engine = create_async_engine(
-        settings.mysql_dsn,
-        echo=settings.mysql_echo,
-        pool_pre_ping=True,
-    )
+    _engine = create_async_engine(settings.db_dsn, echo=settings.db_echo, pool_pre_ping=True)
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 
@@ -45,4 +41,3 @@ async def shutdown_engine() -> None:
         await _engine.dispose()
     _engine = None
     _session_factory = None
-

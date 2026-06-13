@@ -53,6 +53,7 @@ class SessionState:
     audio_chunks: list[AudioChunk] = field(default_factory=list)
     frames: list[FrameSnapshot] = field(default_factory=list)
     turns: list[TurnRecord] = field(default_factory=list)
+    session_summary: str | None = None
     assistant_speaking: bool = False
     assistant_transcript: str = ""
     last_partial_chunk_count: int = 0
@@ -91,6 +92,13 @@ class SessionStore:
         if session is None:
             return None
         session.updated_at = utc_now_iso()
+        return session
+
+    def set_session_summary(self, session_id: str, summary: str | None) -> SessionState | None:
+        session = self.touch_session(session_id)
+        if session is None:
+            return None
+        session.session_summary = summary
         return session
 
     def add_audio_chunk(

@@ -42,6 +42,8 @@ class LlmAdapter:
         user_text: str,
         vision_summary: str | None,
         history_turns: list[TurnRecord],
+        session_summary: str | None = None,
+        semantic_snippets: list[str] | None = None,
         force_no_vision: bool = False,
     ) -> AsyncIterator[str]:
         if settings.llm_provider == "volcengine":
@@ -49,6 +51,8 @@ class LlmAdapter:
                 messages = await build_conversation_messages(
                     user_text=user_text,
                     vision_summary=vision_summary,
+                    session_summary=session_summary,
+                    semantic_snippets=semantic_snippets,
                     force_no_vision=force_no_vision,
                     history_turns=history_turns,
                 )

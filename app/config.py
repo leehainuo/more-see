@@ -31,9 +31,17 @@ class Settings(BaseSettings):
     cost_asr_price_yuan_per_hour: float = 1.0
     cost_tts_price_yuan_per_10k_chars: float = 3.0
 
-    mysql_dsn: str = "mysql+asyncmy://moresee:moresee@127.0.0.1:3306/more_see?charset=utf8mb4"
-    mysql_echo: bool = False
-    mysql_auto_create_tables: bool = True
+    db_dsn: str = "postgresql+asyncpg://moresee:moresee@127.0.0.1:5432/more_see"
+    db_echo: bool = False
+    db_auto_create_tables: bool = True
+
+    memory_summary_enabled: bool = True
+    memory_summary_turn_interval: int = 3
+    memory_summary_max_chars: int = 220
+    memory_semantic_enabled: bool = False
+    memory_semantic_top_k: int = 3
+    memory_embedding_dimensions: int = 1536
+    ark_embedding_model: str = ""
 
     auth_jwt_secret: str = "dev-only-secret"
     auth_jwt_expire_seconds: int = 60 * 60 * 24 * 7
