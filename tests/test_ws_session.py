@@ -275,10 +275,10 @@ def test_asr_partial_request_confirms_and_interrupts(monkeypatch: pytest.MonkeyP
 
     async def fake_transcribe_partial(_chunks):
         return {
-            "transcript": "打断一下我补充",
+            "transcript": "打断一下我补充一下情况",
             "provider": "volcengine",
-            "durationMs": 320,
-            "chunkCount": 2,
+            "durationMs": 480,
+            "chunkCount": 3,
         }
 
     monkeypatch.setattr(audio_service, "handle_turn_commit", fake_handle_turn_commit)
@@ -321,6 +321,16 @@ def test_asr_partial_request_confirms_and_interrupts(monkeypatch: pytest.MonkeyP
                 "type": "audio.chunk",
                 "sessionId": ready_event["sessionId"],
                 "chunkId": "chunk-p-2",
+                "mimeType": "audio/pcm;rate=16000",
+                "base64Audio": "dGVzdA==",
+                "durationMs": 240,
+            }
+        )
+        websocket.send_json(
+            {
+                "type": "audio.chunk",
+                "sessionId": ready_event["sessionId"],
+                "chunkId": "chunk-p-3",
                 "mimeType": "audio/pcm;rate=16000",
                 "base64Audio": "dGVzdA==",
                 "durationMs": 240,
@@ -413,11 +423,11 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
             {
                 "transcript": "等等",
                 "provider": "volcengine",
-                "durationMs": 320,
-                "chunkCount": 2,
+                "durationMs": 480,
+                "chunkCount": 3,
             },
             {
-                "transcript": "等等我补充一下",
+                "transcript": "等等我补充一下这个点",
                 "provider": "volcengine",
                 "durationMs": 480,
                 "chunkCount": 3,
@@ -432,6 +442,7 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
 
     session_store.add_audio_chunk(session_id, "chunk-1", "audio/pcm;rate=16000", "dGVzdA==", 160)
     session_store.add_audio_chunk(session_id, "chunk-2", "audio/pcm;rate=16000", "dGVzdA==", 160)
+    session_store.add_audio_chunk(session_id, "chunk-4", "audio/pcm;rate=16000", "dGVzdA==", 160)
 
     assert audio_service.should_probe_barge_in(session_id) is True
     candidate = await audio_service.probe_barge_in(session_id)
@@ -447,6 +458,6 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
 
     assert confirmed is not None
     assert confirmed["verdict"] == "confirmed"
-    assert confirmed["transcript"] == "等等我补充一下"
+    assert confirmed["transcript"] == "等等我补充一下这个点"
 
     session_store.remove_session(session_id)

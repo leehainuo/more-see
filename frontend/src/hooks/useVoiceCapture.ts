@@ -126,11 +126,12 @@ export function useVoiceCapture({
     async (activeSessionId: string) => {
       const turnId = crypto.randomUUID();
       let frameId: string | undefined;
-      const includeVision = visionEnabled;
       if (visionEnabled) {
         visionCaptureRequestedRef.current = true;
         frameId = (await captureFrameForTurn({ sessionId: activeSessionId, inputSource })) ?? undefined;
       }
+      const hasAnyStoredFrame = Boolean(useSessionStore.getState().lastFrameStoredId);
+      const includeVision = Boolean(visionEnabled && (frameId || hasAnyStoredFrame));
 
       commitTurn({
         sessionId: activeSessionId,
@@ -319,7 +320,7 @@ export function useVoiceCapture({
           if (!canStartTurn) {
             return;
           }
-          const startThreshold = assistantSpeaking ? SILENCE_THRESHOLD * 2.5 : SILENCE_THRESHOLD;
+          const startThreshold = assistantSpeaking ? SILENCE_THRESHOLD * 3.5 : SILENCE_THRESHOLD;
           if (rms <= startThreshold) {
             return;
           }

@@ -271,9 +271,28 @@ export function useVisualCapture({
 
   const captureFrameForTurn = useCallback(
     async (payload: { sessionId: string; inputSource: InputSource }) => {
+      const waitStartedAt = performance.now();
+      while (performance.now() - waitStartedAt < 1200) {
+        const candidate = mainVideoElementRef.current;
+        if (
+          candidate &&
+          isMainPreviewReady &&
+          candidate.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          (candidate.videoWidth || 0) > 0 &&
+          (candidate.videoHeight || 0) > 0
+        ) {
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+      }
+
       const element = mainVideoElementRef.current;
       if (!element || !isMainPreviewReady || element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        setVisionStatus("error", "当前没有可用的视频画面，本轮将仅返回语音识别结果。");
+        setVisionStatus("preview", "本轮未捕获到可用关键帧，将仅基于语音内容回答。");
+        toast.error("本轮未捕获关键帧", {
+          description: "视频预览尚未就绪或画面不可用。",
+          duration: 1800,
+        });
         return null;
       }
 

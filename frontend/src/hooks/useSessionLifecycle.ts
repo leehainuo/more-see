@@ -324,19 +324,15 @@ export function useSessionLifecycle() {
       return;
     }
     stopCapture();
-    stopPreview();
-  }, [sessionId, stopCapture, stopPreview]);
+  }, [sessionId, stopCapture]);
 
   useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
     if (visionEnabled) {
       void startPreview(inputSource);
       return;
     }
     stopPreview();
-  }, [inputSource, sessionId, startPreview, stopPreview, visionEnabled]);
+  }, [inputSource, startPreview, stopPreview, visionEnabled]);
 
   const startSession = useCallback(
     async (resumeSessionId?: string) => {
