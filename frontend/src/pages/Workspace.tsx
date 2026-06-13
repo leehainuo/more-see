@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Camera, Monitor } from "lucide-react";
+import { AudioLines, Camera, Link2, Link2Off, MessageSquarePlus, Monitor } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -91,6 +91,7 @@ export default function Workspace() {
   const [isCapturePending, setIsCapturePending] = useState(false);
   const lastToastedFrameStoredIdRef = useRef<string | null>(null);
   const {
+    connectionStatus,
     sessionId,
     sessionStatus,
     inputSource,
@@ -102,7 +103,9 @@ export default function Workspace() {
     bindPipVideoElement,
     setInputSource,
     requestSessionStart,
-    closeSession,
+    connectConnection,
+    disconnectConnection,
+    startNewSession,
     startCapture,
     commitCurrentTurn,
   } = useSessionLifecycle();
@@ -205,18 +208,27 @@ export default function Workspace() {
     setSearchParams,
   ]);
 
-  const handleSessionToggle = () => {
-    if (sessionId) {
-      closeSession();
+  const handleConnectionToggle = () => {
+    if (connectionStatus === "connected" || connectionStatus === "connecting") {
+      disconnectConnection();
       return;
     }
-    requestSessionStart();
+    connectConnection();
   };
 
   const handleCaptureToggle = async () => {
     if (sessionStatus === "recording") {
       setIsCapturePending(false);
       commitCurrentTurn();
+      return;
+    }
+
+    if (connectionStatus !== "connected") {
+      if (sessionId) {
+        connectConnection();
+        return;
+      }
+      requestSessionStart();
       return;
     }
 
@@ -386,22 +398,40 @@ export default function Workspace() {
 
               <button
                 type="button"
-                onClick={handleSessionToggle}
+                onClick={handleConnectionToggle}
                 className={cn(
                   "grid size-11 shrink-0 place-items-center rounded-full border transition-all duration-300",
-                  sessionId
-                    ? "border-red-500 bg-red-500 text-white shadow-[0_10px_24px_rgba(239,68,68,0.28)]"
+                  connectionStatus === "connected"
+                    ? "border-emerald-500 bg-emerald-500 text-white shadow-[0_10px_24px_rgba(16,185,129,0.26)]"
                     : "border-black/10 bg-white text-black hover:bg-black/3",
                 )}
-                aria-label={sessionId ? "结束通话" : "开始通话"}
+                aria-label={connectionStatus === "connected" ? "断开连接" : "连接"}
               >
-                <Camera className="size-5" />
+                {connectionStatus === "connected" ? (
+                  <Link2Off className="size-5" />
+                ) : (
+                  <Link2 className="size-5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={startNewSession}
+                disabled={connectionStatus !== "connected"}
+                className={cn(
+                  "grid size-11 shrink-0 place-items-center rounded-full border transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50",
+                  "border-black/10 bg-white text-black hover:bg-black/3",
+                )}
+                aria-label="新对话"
+              >
+                <MessageSquarePlus className="size-5" />
               </button>
 
               <button
                 type="button"
                 onClick={() => void handleCaptureToggle()}
                 disabled={
+                  connectionStatus !== "connected" ||
                   !sessionId ||
                   sessionStatus === "recognizing" ||
                   sessionStatus === "transcribing" ||
