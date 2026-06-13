@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Camera, Monitor } from "lucide-react";
+import { AudioLines, Camera, Link2, Link2Off, MessageSquarePlus, Monitor } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -79,18 +79,17 @@ function ConversationBubble({ message }: { message: DisplayMessage }) {
 
 export default function Workspace() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const resumeSessionId = searchParams.get("sessionId");
+  const resumeSessionId = searchParams.get("sessionId") ?? searchParams.get("sessionid");
   const messages = useSessionStore((state) => state.messages);
   const lastFrameStoredId = useSessionStore((state) => state.lastFrameStoredId);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
   const setVisionEnabled = useSessionStore((state) => state.setVisionEnabled);
-  const systemMessage = useSessionStore((state) => state.systemMessage);
-  const visionStatus = useSessionStore((state) => state.visionStatus);
   const resetMessages = useSessionStore((state) => state.resetMessages);
   const hydrateHistoryTurns = useSessionStore((state) => state.hydrateHistoryTurns);
   const [isCapturePending, setIsCapturePending] = useState(false);
   const lastToastedFrameStoredIdRef = useRef<string | null>(null);
   const {
+    connectionStatus,
     sessionId,
     sessionStatus,
     inputSource,
@@ -102,10 +101,22 @@ export default function Workspace() {
     bindPipVideoElement,
     setInputSource,
     requestSessionStart,
-    closeSession,
+    connectConnection,
+    disconnectConnection,
+    startNewSession,
     startCapture,
     commitCurrentTurn,
   } = useSessionLifecycle();
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+    if (resumeSessionId) {
+      return;
+    }
+    setSearchParams({ sessionId }, { replace: true });
+  }, [resumeSessionId, sessionId, setSearchParams]);
 
   const displayMessages = useMemo(
     () =>
@@ -168,7 +179,7 @@ export default function Workspace() {
   }, [lastFrameStoredId, sessionId]);
 
   useEffect(() => {
-    if (!resumeSessionId || sessionId) {
+    if (!resumeSessionId || resumeSessionId === sessionId) {
       return;
     }
     let cancelled = false;
@@ -181,15 +192,29 @@ export default function Workspace() {
         }
         hydrateHistoryTurns(detail.turns);
         setInputSource(detail.inputSource === "screen" ? "screen" : "camera");
+        useSessionStore.setState({
+          sessionId: resumeSessionId,
+          sessionStatus: "closed",
+        });
       } catch {
         if (cancelled) {
           return;
         }
+        toast.error("历史会话加载失败", {
+          description: "请确认后端服务已启动且登录状态有效，然后刷新重试。",
+          duration: 2400,
+        });
+        useSessionStore.setState({
+          messages: [
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "历史会话加载失败。请确认后端服务已启动，然后刷新页面重试。",
+            },
+          ],
+        });
       } finally {
-        if (!cancelled) {
-          requestSessionStart(resumeSessionId);
-          setSearchParams({}, { replace: true });
-        }
+        return;
       }
     })();
     return () => {
@@ -197,26 +222,34 @@ export default function Workspace() {
     };
   }, [
     hydrateHistoryTurns,
-    requestSessionStart,
     resetMessages,
     resumeSessionId,
     sessionId,
     setInputSource,
-    setSearchParams,
   ]);
 
-  const handleSessionToggle = () => {
-    if (sessionId) {
-      closeSession();
+  const handleConnectionToggle = () => {
+    if (connectionStatus === "connected" || connectionStatus === "connecting") {
+      disconnectConnection();
       return;
     }
-    requestSessionStart();
+    connectConnection();
+  };
+
+  const handleStartNewSession = () => {
+    setSearchParams({}, { replace: true });
+    startNewSession();
   };
 
   const handleCaptureToggle = async () => {
     if (sessionStatus === "recording") {
       setIsCapturePending(false);
       commitCurrentTurn();
+      return;
+    }
+
+    if (connectionStatus !== "connected") {
+      toast.message("请先点击连接", { description: "连接成功后再开始录音或创建新对话。", duration: 1800 });
       return;
     }
 
@@ -230,7 +263,7 @@ export default function Workspace() {
     }
 
     if (!sessionId) {
-      requestSessionStart();
+      toast.message("请先创建新对话", { description: "点击右侧的新对话按钮创建会话。", duration: 1800 });
       return;
     }
 
@@ -343,20 +376,6 @@ export default function Workspace() {
         <div className="mx-auto w-full max-w-3xl">
           <div className="pointer-events-auto rounded-full border border-black/10 bg-white/96 px-3 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.10)] backdrop-blur">
             <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1 px-1">
-                <p className="truncate text-[1.05rem] text-zinc-500">
-                  {sessionId
-                    ? isScreenMode
-                      ? "正在结合你的屏幕与语音理解问题"
-                      : "可以继续说话，我会结合当前画面回复"
-                    : "有问题，尽管问"}
-                </p>
-                <p className="mt-1 truncate text-xs text-zinc-400">
-                  {systemMessage}
-                  {sessionId ? ` · 视觉 ${visionStatus}` : ""}
-                </p>
-              </div>
-
               <div className="flex items-center rounded-full border border-black/10 bg-zinc-50 p-1">
                 <button
                   type="button"
@@ -384,25 +403,47 @@ export default function Workspace() {
                 </button>
               </div>
 
+              <div className="min-w-0 flex-1 px-1" />
+
               <button
                 type="button"
-                onClick={handleSessionToggle}
+                onClick={handleConnectionToggle}
                 className={cn(
                   "grid size-11 shrink-0 place-items-center rounded-full border transition-all duration-300",
-                  sessionId
-                    ? "border-red-500 bg-red-500 text-white shadow-[0_10px_24px_rgba(239,68,68,0.28)]"
+                  connectionStatus === "connected"
+                    ? "border-emerald-500 bg-emerald-500 text-white shadow-[0_10px_24px_rgba(16,185,129,0.26)]"
                     : "border-black/10 bg-white text-black hover:bg-black/3",
                 )}
-                aria-label={sessionId ? "结束通话" : "开始通话"}
+                aria-label={connectionStatus === "connected" ? "断开连接" : "连接"}
               >
-                <Camera className="size-5" />
+                {connectionStatus === "connected" ? (
+                  <Link2Off className="size-5" />
+                ) : (
+                  <Link2 className="size-5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleStartNewSession}
+                disabled={connectionStatus === "connecting"}
+                className={cn(
+                  "grid size-11 shrink-0 place-items-center rounded-full border transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50",
+                  "border-black/10 bg-white text-black hover:bg-black/3",
+                )}
+                aria-label="新对话"
+              >
+                <MessageSquarePlus className="size-5" />
               </button>
 
               <button
                 type="button"
                 onClick={() => void handleCaptureToggle()}
                 disabled={
+                  connectionStatus !== "connected" ||
                   !sessionId ||
+                  sessionStatus === "idle" ||
+                  sessionStatus === "closed" ||
                   sessionStatus === "recognizing" ||
                   sessionStatus === "transcribing" ||
                   isCaptureBooting
@@ -427,10 +468,10 @@ export default function Workspace() {
                     aria-hidden="true"
                   >
                     {Array.from({ length: 9 }).map((_, index) => {
-                      const activeBase = 10 + ((index % 4) + 1) * 5;
-                      const expandedBase = [10, 14, 18, 22, 26, 22, 18, 14, 10][index] ?? 14;
+                      const activeBase = 8 + ((index % 4) + 1) * 4;
+                      const expandedBase = [8, 11, 14, 17, 20, 17, 14, 11, 8][index] ?? 11;
                       const height = isCapturing
-                        ? Math.round(activeBase + inputLevel * (14 + (index % 3) * 4))
+                        ? Math.round(activeBase + inputLevel * (8 + (index % 3) * 2))
                         : expandedBase;
                       return (
                         <span

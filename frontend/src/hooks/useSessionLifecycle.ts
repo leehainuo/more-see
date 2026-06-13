@@ -31,6 +31,8 @@ export function useSessionLifecycle() {
   const bargeInProbeSeqRef = useRef(0);
   const pendingSessionStartRef = useRef(false);
   const pendingResumeSessionIdRef = useRef<string | null>(null);
+  const resumeAfterReconnectRef = useRef(false);
+  const pendingStartNewSessionRef = useRef(false);
   const latestSessionRef = useRef<{
     sessionId: string | null;
     sessionStatus: typeof sessionStatus;
@@ -189,6 +191,9 @@ export function useSessionLifecycle() {
   }, [assistantAudioStatus, stopBargeInProbe]);
 
   const tryStartHandsFreeCapture = useCallback(async () => {
+    if (connectionStatus !== "connected") {
+      return;
+    }
     const current = latestSessionRef.current;
     if (
       autoStartingCaptureRef.current ||
@@ -207,7 +212,7 @@ export function useSessionLifecycle() {
     } finally {
       autoStartingCaptureRef.current = false;
     }
-  }, [startCapture]);
+  }, [connectionStatus, startCapture]);
 
   useEffect(() => {
     tryStartHandsFreeCaptureRef.current = () => {
@@ -225,6 +230,12 @@ export function useSessionLifecycle() {
     });
     client.onEvent((event) => {
       useSessionStore.getState().handleServerEvent(event);
+      if (event.type === "session.closed" && pendingStartNewSessionRef.current) {
+        pendingStartNewSessionRef.current = false;
+        useSessionStore.getState().resetMessages();
+        void startSession({ announce: true });
+        return;
+      }
       if (event.type === "tts.start") {
         suppressTtsPlaybackRef.current = false;
         speechTokenRef.current += 1;
@@ -262,7 +273,6 @@ export function useSessionLifecycle() {
         stopAssistantSpeechRef.current();
       }
     });
-    client.connect();
 
     return () => {
       stopAssistantSpeechRef.current();
@@ -303,10 +313,10 @@ export function useSessionLifecycle() {
   }, [client, connectionStatus, sessionId]);
 
   useEffect(() => {
-    if (sessionId && sessionStatus === "ready" && !isCapturing) {
+    if (connectionStatus === "connected" && sessionId && sessionStatus === "ready" && !isCapturing) {
       void tryStartHandsFreeCapture();
     }
-  }, [isCapturing, sessionId, sessionStatus, tryStartHandsFreeCapture]);
+  }, [connectionStatus, isCapturing, sessionId, sessionStatus, tryStartHandsFreeCapture]);
 
   useEffect(() => {
     if (connectionStatus !== "connected" || sessionId || !pendingSessionStartRef.current) {
@@ -317,6 +327,14 @@ export function useSessionLifecycle() {
     const resumeSessionId = pendingResumeSessionIdRef.current ?? undefined;
     pendingResumeSessionIdRef.current = null;
     startSessionRef.current(resumeSessionId);
+  }, [connectionStatus, sessionId]);
+
+  useEffect(() => {
+    if (connectionStatus !== "connected" || !sessionId || !resumeAfterReconnectRef.current) {
+      return;
+    }
+    resumeAfterReconnectRef.current = false;
+    void startSession({ resumeSessionId: sessionId, announce: false });
   }, [connectionStatus, sessionId]);
 
   useEffect(() => {
@@ -335,15 +353,19 @@ export function useSessionLifecycle() {
   }, [inputSource, startPreview, stopPreview, visionEnabled]);
 
   const startSession = useCallback(
-    async (resumeSessionId?: string) => {
+    async (options?: { resumeSessionId?: string; announce?: boolean }) => {
+    const resumeSessionId = options?.resumeSessionId;
+    const announce = options?.announce ?? true;
     if (visionEnabled) {
       await startPreview(inputSource);
     }
-    appendUserMessage(
-      resumeSessionId
-        ? `已恢复会话 ${resumeSessionId.slice(0, 8)}，可以继续说话，我会结合当前画面与历史上下文回复。`
-        : "准备开始新一轮多模态对话，请说出你的问题，我会结合当前画面一起理解。",
-    );
+    if (announce) {
+      appendUserMessage(
+        resumeSessionId
+          ? `已恢复会话 ${resumeSessionId.slice(0, 8)}，可以继续说话，我会结合当前画面与历史上下文回复。`
+          : "准备开始新一轮多模态对话，请说出你的问题，我会结合当前画面一起理解。",
+      );
+    }
     client.send({
       type: "session.start",
       ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
@@ -359,7 +381,7 @@ export function useSessionLifecycle() {
 
   useEffect(() => {
     startSessionRef.current = (resumeSessionId?: string) => {
-      void startSession(resumeSessionId);
+      void startSession({ resumeSessionId, announce: true });
     };
   }, [startSession]);
 
@@ -369,6 +391,8 @@ export function useSessionLifecycle() {
     }
     pendingSessionStartRef.current = false;
     pendingResumeSessionIdRef.current = null;
+    resumeAfterReconnectRef.current = false;
+    pendingStartNewSessionRef.current = false;
     autoStartingCaptureRef.current = false;
     stopCapture();
     stopAssistantSpeech();
@@ -377,6 +401,32 @@ export function useSessionLifecycle() {
       sessionId,
     });
   }, [client, sessionId, stopAssistantSpeech, stopCapture]);
+
+  const disconnectConnection = useCallback(() => {
+    pendingSessionStartRef.current = false;
+    pendingResumeSessionIdRef.current = null;
+    resumeAfterReconnectRef.current = false;
+    pendingStartNewSessionRef.current = false;
+    autoStartingCaptureRef.current = false;
+    stopCapture();
+    stopAssistantSpeech();
+    stopBargeInProbe();
+    useSessionStore.setState((state) => ({
+      sessionStatus: state.sessionId ? "closed" : "idle",
+      assistantAudioStatus: "idle",
+    }));
+    client.disconnect();
+  }, [client, stopAssistantSpeech, stopBargeInProbe, stopCapture]);
+
+  const connectConnection = useCallback(() => {
+    if (connectionStatus === "connected" || connectionStatus === "connecting") {
+      return;
+    }
+    if (sessionId) {
+      resumeAfterReconnectRef.current = true;
+    }
+    client.connect();
+  }, [client, connectionStatus, sessionId]);
 
   const reconnect = useCallback(() => {
     client.disconnect();
@@ -392,16 +442,34 @@ export function useSessionLifecycle() {
       pendingSessionStartRef.current = false;
       const nextResumeSessionId = pendingResumeSessionIdRef.current ?? undefined;
       pendingResumeSessionIdRef.current = null;
-      void startSession(nextResumeSessionId);
+      void startSession({ resumeSessionId: nextResumeSessionId, announce: true });
       return;
     }
-
-    if (connectionStatus !== "connecting") {
-      reconnect();
-    }
+    useSessionStore.setState({
+      systemMessage: "WebSocket 未连接，请先点击连接。",
+    });
     },
-    [connectionStatus, reconnect, startSession],
+    [connectionStatus, startSession],
   );
+
+  const startNewSession = useCallback(() => {
+    useSessionStore.getState().resetMessages();
+    useSessionStore.setState((state) => ({
+      sessionId: null,
+      sessionStatus: "idle",
+      inputLevel: 0,
+      recordedChunks: 0,
+      visionStatus: state.visionEnabled ? "preview" : "idle",
+      visionSummary: "",
+      assistantAudioStatus: "idle",
+      keyframes: [],
+      lastFrameStoredId: null,
+      systemMessage: "等待连接 WebSocket 通道。",
+    }));
+    pendingSessionStartRef.current = true;
+    pendingResumeSessionIdRef.current = null;
+    requestSessionStart();
+  }, [requestSessionStart]);
 
   return {
     connectionStatus,
@@ -418,9 +486,11 @@ export function useSessionLifecycle() {
     visionEnabled,
     setInputSource,
     requestSessionStart,
-    reconnect,
-    startSession,
+    startSession: (resumeSessionId?: string) => void startSession({ resumeSessionId, announce: true }),
     closeSession,
+    connectConnection,
+    disconnectConnection,
+    startNewSession,
     startCapture,
     stopCapture,
     commitCurrentTurn,
