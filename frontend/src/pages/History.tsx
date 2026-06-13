@@ -171,9 +171,9 @@ export default function History() {
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="sticky top-6 self-start space-y-3">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">详情</p>
-                <div className="rounded-[24px] border border-black/10 bg-white p-5">
+                <div className="max-h-[calc(100vh-280px)] overflow-y-auto rounded-[24px] border border-black/10 bg-white p-5">
                   {!selectedSessionId ? (
                     <p className="text-sm leading-7 text-zinc-600">从左侧选择一个会话查看详情。</p>
                   ) : detailLoading ? (
