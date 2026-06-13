@@ -8,9 +8,5 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - moresee_pg_data:/var/lib/postgresql/data
+      - ./data/pg_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-
-volumes:
-  moresee_pg_data:
-

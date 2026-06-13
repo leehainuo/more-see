@@ -21,3 +21,4 @@ ON CONFLICT (username) DO UPDATE SET
   password_hash = EXCLUDED.password_hash,
   is_super = EXCLUDED.is_super,
   updated_at = EXCLUDED.updated_at;
+
