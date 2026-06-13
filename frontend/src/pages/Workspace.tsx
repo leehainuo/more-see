@@ -80,6 +80,12 @@ function ConversationBubble({ message }: { message: DisplayMessage }) {
 export default function Workspace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const resumeSessionId = searchParams.get("sessionId") ?? searchParams.get("sessionid");
+  const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+  const bottomComposerRef = useRef<HTMLDivElement | null>(null);
+  const hasAutoScrolledRef = useRef(false);
+  const scrollRafRef = useRef<number | null>(null);
+  const lastMessageMetaRef = useRef<{ length: number; lastId: string | null }>({ length: 0, lastId: null });
+  const [bottomSpacerHeight, setBottomSpacerHeight] = useState(208);
   const messages = useSessionStore((state) => state.messages);
   const lastFrameStoredId = useSessionStore((state) => state.lastFrameStoredId);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
@@ -151,6 +157,56 @@ export default function Workspace() {
 
     return nextMessages;
   }, [displayMessages, sessionStatus]);
+
+  useEffect(() => {
+    if (!bottomComposerRef.current) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const rect = bottomComposerRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const nextSpacer = Math.round(rect.height + 64);
+      setBottomSpacerHeight((current) => (current === nextSpacer ? current : nextSpacer));
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(bottomComposerRef.current);
+    window.addEventListener("resize", updateHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateHeight);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!bottomAnchorRef.current) {
+      return;
+    }
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+    }
+
+    const nextMeta = {
+      length: renderedMessages.length,
+      lastId: renderedMessages[renderedMessages.length - 1]?.id ?? null,
+    };
+    const prevMeta = lastMessageMetaRef.current;
+    const isNewBubble = nextMeta.length !== prevMeta.length || nextMeta.lastId !== prevMeta.lastId;
+    lastMessageMetaRef.current = nextMeta;
+
+    const behavior =
+      !hasAutoScrolledRef.current ? "auto" : isNewBubble ? "smooth" : "auto";
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      bottomAnchorRef.current?.scrollIntoView({ block: "end", behavior });
+      hasAutoScrolledRef.current = true;
+      scrollRafRef.current = null;
+    });
+  }, [renderedMessages]);
 
   useEffect(() => {
     if (!visionEnabled) {
@@ -358,7 +414,7 @@ export default function Workspace() {
       floatingPanelClassName="top-[116px] right-4 sm:right-5 lg:right-6"
       narrow
     >
-      <main className="mx-auto w-full max-w-5xl pb-36">
+      <main className="mx-auto w-full max-w-5xl">
         <section className="min-w-0">
           <div className="flex min-h-[720px] flex-col">
             <div className="flex-1 px-4 py-5 sm:px-6">
@@ -366,6 +422,7 @@ export default function Workspace() {
                 {renderedMessages.map((message) => (
                   <ConversationBubble key={message.id} message={message} />
                 ))}
+                <div ref={bottomAnchorRef} style={{ height: `${bottomSpacerHeight}px` }} />
               </div>
             </div>
           </div>
@@ -374,7 +431,10 @@ export default function Workspace() {
 
       <div className="pointer-events-none fixed inset-x-0 bottom-4 z-30 px-4 sm:bottom-5 sm:px-6">
         <div className="mx-auto w-full max-w-3xl">
-          <div className="pointer-events-auto rounded-full border border-black/10 bg-white/96 px-3 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.10)] backdrop-blur">
+          <div
+            ref={bottomComposerRef}
+            className="pointer-events-auto rounded-full border border-black/10 bg-white/96 px-3 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.10)] backdrop-blur"
+          >
             <div className="flex items-center gap-3">
               <div className="flex items-center rounded-full border border-black/10 bg-zinc-50 p-1">
                 <button
