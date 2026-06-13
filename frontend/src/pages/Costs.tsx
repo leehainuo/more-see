@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { TopNav } from "@/components/TopNav";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   fetchAdminCostSessionDetail,
@@ -17,6 +18,10 @@ export default function Costs() {
   const isSuper = useAuthStore((state) => state.isSuper);
   const [items, setItems] = useState<AdminCostSessionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [total, setTotal] = useState(0);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [detailsBySessionId, setDetailsBySessionId] = useState<Record<string, AdminCostSessionDetailResponse>>({});
 
@@ -35,8 +40,10 @@ export default function Costs() {
     setLoading(true);
     void (async () => {
       try {
-        const response = await fetchAdminCostSessions();
+        const response = await fetchAdminCostSessions({ page: 1, pageSize });
         if (!cancelled) {
+          setPage(response.page);
+          setTotal(response.total);
           setItems(response.items);
         }
       } catch {
@@ -53,6 +60,29 @@ export default function Costs() {
       cancelled = true;
     };
   }, [isSuper]);
+
+  const canLoadMore = items.length < total;
+
+  async function handleLoadMore() {
+    if (loading || loadingMore || !canLoadMore) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const response = await fetchAdminCostSessions({ page: nextPage, pageSize });
+      setPage(response.page);
+      setTotal(response.total);
+      setItems((prev) => [
+        ...prev,
+        ...response.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId)),
+      ]);
+    } catch {
+      toast.error("加载更多失败");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -171,6 +201,17 @@ export default function Costs() {
                     ) : null}
                   </div>
                 ))}
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    disabled={!canLoadMore || loadingMore}
+                    onClick={handleLoadMore}
+                  >
+                    {loadingMore ? "正在加载..." : canLoadMore ? "加载更多" : "没有更多了"}
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>

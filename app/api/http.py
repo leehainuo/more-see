@@ -109,8 +109,14 @@ async def me(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
 
 
 @router.get("/api/admin/costs/sessions")
-async def list_cost_sessions(_user_id: int = Depends(require_super_user_id)) -> JSONResponse:
-    rows = await persistence_repository.list_all_sessions_with_details(limit=50, offset=0)
+async def list_cost_sessions(
+    _user_id: int = Depends(require_super_user_id),
+    page: int = Query(default=1, ge=1),
+    pageSize: int = Query(default=20, ge=1, le=50),
+) -> JSONResponse:
+    total = await persistence_repository.count_all_sessions()
+    offset = (page - 1) * pageSize
+    rows = await persistence_repository.list_all_sessions_with_details(limit=pageSize, offset=offset)
     items = []
     for row in rows:
         turns = sorted(row.turns, key=lambda item: item.created_at)
@@ -132,7 +138,7 @@ async def list_cost_sessions(_user_id: int = Depends(require_super_user_id)) -> 
                 "visionCacheHitCount": sum(1 for frame in frames if int(getattr(frame, "cache_hit", 0) or 0) == 1),
             }
         )
-    return JSONResponse(content={"items": items})
+    return JSONResponse(content={"page": page, "pageSize": pageSize, "total": total, "items": items})
 
 
 @router.get("/api/admin/costs/sessions/{session_id}")
@@ -184,10 +190,19 @@ async def get_cost_session_detail(session_id: str, _user_id: int = Depends(requi
 
 
 @router.get("/api/sessions")
-async def list_sessions(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
-    rows = await persistence_repository.list_sessions(user_id=user_id, limit=50, offset=0)
+async def list_sessions(
+    user_id: int = Depends(get_current_user_id),
+    page: int = Query(default=1, ge=1),
+    pageSize: int = Query(default=20, ge=1, le=50),
+) -> JSONResponse:
+    total = await persistence_repository.count_sessions(user_id=user_id)
+    offset = (page - 1) * pageSize
+    rows = await persistence_repository.list_sessions(user_id=user_id, limit=pageSize, offset=offset)
     return JSONResponse(
         content={
+            "page": page,
+            "pageSize": pageSize,
+            "total": total,
             "items": [
                 {
                     "sessionId": row.session_id,

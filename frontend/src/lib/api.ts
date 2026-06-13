@@ -38,6 +38,9 @@ export type AdminCostSessionItem = {
 };
 
 export type AdminCostSessionsResponse = {
+  page: number;
+  pageSize: number;
+  total: number;
   items: AdminCostSessionItem[];
 };
 
@@ -68,6 +71,9 @@ export type SessionListItem = {
 };
 
 export type SessionListResponse = {
+  page: number;
+  pageSize: number;
+  total: number;
   items: SessionListItem[];
 };
 
@@ -147,8 +153,13 @@ export async function loginOrRegister(username: string, password: string): Promi
   });
 }
 
-export async function fetchAdminCostSessions(): Promise<AdminCostSessionsResponse> {
-  return fetchJson<AdminCostSessionsResponse>("/api/admin/costs/sessions");
+export async function fetchAdminCostSessions(params?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<AdminCostSessionsResponse> {
+  const page = params?.page ?? 1;
+  const pageSize = params?.pageSize ?? 20;
+  return fetchJson<AdminCostSessionsResponse>(`/api/admin/costs/sessions?page=${page}&pageSize=${pageSize}`);
 }
 
 export async function fetchAdminCostSessionDetail(sessionId: string): Promise<AdminCostSessionDetailResponse> {
@@ -161,8 +172,10 @@ export async function logout(): Promise<{ ok: boolean }> {
   });
 }
 
-export async function fetchSessions(): Promise<SessionListResponse> {
-  return fetchJson<SessionListResponse>("/api/sessions");
+export async function fetchSessions(params?: { page?: number; pageSize?: number }): Promise<SessionListResponse> {
+  const page = params?.page ?? 1;
+  const pageSize = params?.pageSize ?? 20;
+  return fetchJson<SessionListResponse>(`/api/sessions?page=${page}&pageSize=${pageSize}`);
 }
 
 export async function fetchSessionDetail(sessionId: string): Promise<SessionDetailResponse> {

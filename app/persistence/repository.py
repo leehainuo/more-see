@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import desc, select, text, update
+from sqlalchemy import desc, func, select, text, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
@@ -220,6 +220,11 @@ class PersistenceRepository:
             )
             return list(result)
 
+    async def count_sessions(self, *, user_id: int) -> int:
+        async with session_scope() as session:
+            value = await session.scalar(select(func.count(SessionRow.id)).where(SessionRow.user_id == user_id))
+            return int(value or 0)
+
     async def list_sessions_with_details(
         self, *, user_id: int, limit: int = 20, offset: int = 0
     ) -> list[SessionRow]:
@@ -233,6 +238,11 @@ class PersistenceRepository:
                 .offset(offset)
             )
             return list(result)
+
+    async def count_all_sessions(self) -> int:
+        async with session_scope() as session:
+            value = await session.scalar(select(func.count(SessionRow.id)))
+            return int(value or 0)
 
     async def list_all_sessions_with_details(self, *, limit: int = 50, offset: int = 0) -> list[SessionRow]:
         async with session_scope() as session:
