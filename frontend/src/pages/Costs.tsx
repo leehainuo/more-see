@@ -87,7 +87,7 @@ export default function Costs() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <TopNav />
-      <main className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 pb-16 pt-10">
+      <main className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 pb-16 pt-24">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-black">成本面板</h1>
           <p className="text-sm text-zinc-600">仅超级用户可见，按火山官方计费口径做预估。</p>

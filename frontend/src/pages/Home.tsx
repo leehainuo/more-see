@@ -33,7 +33,7 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground">
       <TopNav />
 
-      <main className="mx-auto flex max-w-[1280px] flex-col gap-16 px-6 pb-20 pt-12 sm:pt-20">
+      <main className="mx-auto flex max-w-[1280px] flex-col gap-16 px-6 pb-20 pt-24 sm:pt-32">
         <section className="flex flex-col items-center border-b border-black/8 pb-16 text-center sm:pb-24">
           <h1 className="mt-6 max-w-5xl text-[clamp(3rem,7vw,5.5rem)] font-semibold tracking-tight text-black">
             把语音、视觉和实时回答整合成更像正式产品的体验
