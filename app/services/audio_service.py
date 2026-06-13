@@ -18,7 +18,7 @@ _PARTIAL_MIN_DURATION_MS = 300
 _PARTIAL_MIN_CHUNKS = 2
 _BARGE_IN_CONFIRM_HITS = 2
 _BARGE_IN_LONG_PARTIAL_LEN = 6
-_VISION_SUMMARY_BUDGET_SECONDS = 2.0
+_VISION_TOTAL_BUDGET_SECONDS = 12.0
 _NORMALIZE_TEXT_RE = re.compile(r"""[\s，。！？；：、“”"'`~!@#$%^&*()_+\-=\[\]{};:\\|,.<>/?《》【】（）]""")
 
 
@@ -151,6 +151,7 @@ class AudioService:
         }
 
     async def handle_turn_commit(self, websocket: WebSocket, payload: dict) -> None:
+        commit_started_at = asyncio.get_running_loop().time()
         session_id = payload.get("sessionId")
         if not session_id:
             await websocket.send_json(
@@ -259,9 +260,10 @@ class AudioService:
             vision_result: dict[str, str | bool] | None = None
             if vision_task is not None:
                 try:
+                    remaining = max(0.0, _VISION_TOTAL_BUDGET_SECONDS - (asyncio.get_running_loop().time() - commit_started_at))
                     vision_result = await asyncio.wait_for(
                         asyncio.shield(vision_task),
-                        timeout=_VISION_SUMMARY_BUDGET_SECONDS,
+                        timeout=remaining,
                     )
                 except asyncio.TimeoutError:
                     vision_result = None
@@ -280,8 +282,8 @@ class AudioService:
                         "type": "vision.error",
                         "sessionId": session_id,
                         "turnId": turn_id,
-                        "code": "missing_frame",
-                        "message": "当前轮次未捕获到关键帧，本次仅返回语音识别结果。",
+                        "code": "vision_not_ready",
+                        "message": "本轮关键帧视觉摘要尚未就绪，本次先基于语音内容回答。",
                     }
                 )
             else:
@@ -308,6 +310,7 @@ class AudioService:
             turn_id=turn_id,
             transcript=str(result["transcript"]),
             vision_summary=vision_summary,
+            force_no_vision=include_vision and vision_summary is None,
         )
 
     async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> None:
