@@ -9,6 +9,7 @@ from app.adapters.llm_adapter import llm_adapter
 from app.config import settings
 from app.persistence.service import persistence_service
 from app.state.session_store import session_store
+from app.services.memory_service import memory_service
 from app.services.tts_service import tts_service
 
 _SENTENCE_END_RE = re.compile(r"(?<=[，,。！？!?；;：:\n])")
@@ -38,6 +39,23 @@ class ConversationService:
         session_store.set_assistant_transcript(session_id, "")
         session_store.set_assistant_speaking(session_id, False)
 
+        session_summary: str | None = None
+        semantic_snippets: list[str] = []
+        session = session_store.get_session(session_id)
+        if session is not None:
+            session_summary = session.session_summary
+            if settings.memory_semantic_enabled and session.user_id is not None:
+                try:
+                    semantic_snippets = await asyncio.wait_for(
+                        memory_service.retrieve_semantic_snippets(
+                            user_id=int(session.user_id),
+                            query=transcript,
+                        ),
+                        timeout=1.6,
+                    )
+                except Exception:
+                    semantic_snippets = []
+
         sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
         tts_task = asyncio.create_task(
             self._stream_tts_for_turn(
@@ -63,6 +81,8 @@ class ConversationService:
             async for delta in llm_adapter.stream_reply(
                 user_text=transcript,
                 vision_summary=vision_summary,
+                session_summary=session_summary,
+                semantic_snippets=semantic_snippets,
                 force_no_vision=force_no_vision,
                 history_turns=history_turns,
             ):
@@ -97,6 +117,13 @@ class ConversationService:
                 asr_provider=asr_provider,
                 tts_char_count=len(full_text),
                 tts_provider="volcengine" if settings.tts_provider == "volcengine" else "fallback",
+            )
+            memory_service.record_turn_completed(
+                session_id=session_id,
+                turn_id=turn_id,
+                user_text=transcript,
+                assistant_text=full_text,
+                vision_summary=vision_summary,
             )
 
             await websocket.send_json(
