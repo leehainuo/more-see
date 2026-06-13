@@ -79,7 +79,7 @@ function ConversationBubble({ message }: { message: DisplayMessage }) {
 
 export default function Workspace() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const resumeSessionId = searchParams.get("sessionId");
+  const resumeSessionId = searchParams.get("sessionId") ?? searchParams.get("sessionid");
   const messages = useSessionStore((state) => state.messages);
   const lastFrameStoredId = useSessionStore((state) => state.lastFrameStoredId);
   const visionEnabled = useSessionStore((state) => state.visionEnabled);
