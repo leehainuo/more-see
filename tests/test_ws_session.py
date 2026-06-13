@@ -4,16 +4,69 @@ from fastapi.testclient import TestClient
 from app.adapters.asr_adapter import asr_adapter
 from app.config import settings
 from app.main import app
+from app.auth.security import create_access_token
+from app.cache.session_lock_service import session_lock_service
 from app.state.session_store import session_store
 from app.services.audio_service import audio_service
+from app.persistence.service import persistence_service
+from app.persistence.repository import persistence_repository
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def force_fallback_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.main as main_module
+
     monkeypatch.setattr(settings, "volcengine_speech_api_key", "")
     monkeypatch.setattr(settings, "ark_api_key", "")
+    client.cookies.set(settings.auth_cookie_name, create_access_token(user_id=1))
+
+    class _FakeRedis:
+        async def ping(self):
+            return True
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(main_module, "get_redis", lambda: _FakeRedis())
+
+    async def fake_shutdown_redis():
+        return None
+
+    monkeypatch.setattr(main_module, "shutdown_redis", fake_shutdown_redis)
+
+    async def fake_ensure_schema():
+        return None
+
+    async def fake_shutdown_persistence():
+        return None
+
+    monkeypatch.setattr(persistence_service, "ensure_schema", fake_ensure_schema)
+    monkeypatch.setattr(persistence_service, "shutdown", fake_shutdown_persistence)
+
+    async def fake_get_session_detail(**_kwargs):
+        return None
+
+    monkeypatch.setattr(persistence_repository, "get_session_detail", fake_get_session_detail)
+
+    async def fake_run_heartbeat(*, stop_event, **_kwargs):
+        await stop_event.wait()
+
+    async def fake_acquire(**_kwargs):
+        return "test-token"
+
+    async def fake_release(**_kwargs):
+        return None
+
+    monkeypatch.setattr(session_lock_service, "acquire", fake_acquire)
+    monkeypatch.setattr(session_lock_service, "release", fake_release)
+    monkeypatch.setattr(session_lock_service, "run_heartbeat", fake_run_heartbeat)
+    monkeypatch.setattr(persistence_service, "record_session_started", lambda **_kwargs: None)
+    monkeypatch.setattr(persistence_service, "record_session_ended", lambda **_kwargs: None)
+    monkeypatch.setattr(persistence_service, "record_turn", lambda **_kwargs: None)
+    monkeypatch.setattr(persistence_service, "record_frame_capture", lambda **_kwargs: None)
+    monkeypatch.setattr(persistence_service, "record_frame_summary", lambda **_kwargs: None)
 
 
 def receive_llm_stream_events(websocket) -> tuple[list[dict], dict]:
@@ -261,7 +314,7 @@ async def test_server_driven_partial_barge_in_confirms_after_stable_partials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session_id = "session-barge-in"
-    session_store.create_session(session_id=session_id, input_source="camera")
+    session_store.create_session(session_id=session_id, user_id=1, input_source="camera")
     session_store.set_assistant_speaking(session_id, True)
     session_store.set_assistant_transcript(session_id, "我先继续讲一下当前页面")
 

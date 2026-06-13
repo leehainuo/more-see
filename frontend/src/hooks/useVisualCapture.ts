@@ -4,6 +4,62 @@ import { useSessionStore } from "@/store/useSessionStore";
 
 type InputSource = "camera" | "screen";
 
+function computeDifferenceHash(canvas: HTMLCanvasElement): string | null {
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  const targetWidth = 9;
+  const targetHeight = 8;
+  const scaledCanvas = document.createElement("canvas");
+  scaledCanvas.width = targetWidth;
+  scaledCanvas.height = targetHeight;
+  const scaledContext = scaledCanvas.getContext("2d");
+  if (!scaledContext) {
+    return null;
+  }
+
+  scaledContext.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+  const { data } = scaledContext.getImageData(0, 0, targetWidth, targetHeight);
+  const bits: number[] = [];
+  for (let y = 0; y < targetHeight; y += 1) {
+    for (let x = 0; x < targetWidth - 1; x += 1) {
+      const leftIndex = (y * targetWidth + x) * 4;
+      const rightIndex = (y * targetWidth + x + 1) * 4;
+      const left = data[leftIndex] * 0.299 + data[leftIndex + 1] * 0.587 + data[leftIndex + 2] * 0.114;
+      const right =
+        data[rightIndex] * 0.299 + data[rightIndex + 1] * 0.587 + data[rightIndex + 2] * 0.114;
+      bits.push(left > right ? 1 : 0);
+    }
+  }
+
+  let hex = "";
+  for (let i = 0; i < bits.length; i += 4) {
+    const value = (bits[i] << 3) | (bits[i + 1] << 2) | (bits[i + 2] << 1) | bits[i + 3];
+    hex += value.toString(16);
+  }
+  return hex;
+}
+
+function hammingDistanceHex(a: string, b: string): number {
+  if (a.length !== b.length) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  let distance = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const aNibble = Number.parseInt(a[i] ?? "0", 16);
+    const bNibble = Number.parseInt(b[i] ?? "0", 16);
+    let xor = aNibble ^ bNibble;
+    while (xor) {
+      distance += xor & 1;
+      xor >>= 1;
+    }
+  }
+  return distance;
+}
+
 type SendFrameCapturePayload = {
   sessionId: string;
   frameId: string;
@@ -32,6 +88,10 @@ export function useVisualCapture({
   const manualScreenStopRef = useRef(false);
   const [isMainPreviewReady, setIsMainPreviewReady] = useState(false);
   const [isPipPreviewReady, setIsPipPreviewReady] = useState(false);
+  const lastFingerprintRef = useRef<{ camera: string | null; screen: string | null }>({
+    camera: null,
+    screen: null,
+  });
 
   const addLocalKeyframe = useMemo(() => useSessionStore.getState().addLocalKeyframe, []);
   const setVisionStatus = useMemo(() => useSessionStore.getState().setVisionStatus, []);
@@ -228,6 +288,18 @@ export function useVisualCapture({
       }
 
       context.drawImage(element, 0, 0, width, height);
+      const fingerprint = computeDifferenceHash(canvas);
+      if (fingerprint) {
+        const previousFingerprint = lastFingerprintRef.current[payload.inputSource];
+        if (previousFingerprint) {
+          const distance = hammingDistanceHex(fingerprint, previousFingerprint);
+          if (distance <= 6) {
+            setVisionStatus("preview", "画面变化较小，本轮将复用上一帧视觉摘要以降低延迟与成本。");
+            return null;
+          }
+        }
+        lastFingerprintRef.current[payload.inputSource] = fingerprint;
+      }
       const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
       const imageBase64 = dataUrl.split(",")[1] ?? "";
       const frameId = crypto.randomUUID();
