@@ -54,6 +54,10 @@ export function useSessionLifecycle() {
     return pcmPlayerRef.current;
   }, []);
 
+  const setAssistantVolume = useCallback((volume: number) => {
+    pcmPlayerRef.current?.setVolume(volume);
+  }, []);
+
   const stopAssistantSpeech = useCallback(() => {
     speechTokenRef.current += 1;
     playbackPhaseRef.current = "idle";
@@ -65,13 +69,15 @@ export function useSessionLifecycle() {
       window.clearInterval(bargeInProbeTimerRef.current);
       bargeInProbeTimerRef.current = null;
     }
-  }, []);
+    setAssistantVolume(1);
+  }, [setAssistantVolume]);
 
   const onBargeInProbe = useCallback(
     (activeSessionId: string) => {
       if (bargeInProbeTimerRef.current) {
         return;
       }
+      setAssistantVolume(0);
 
       const sendProbe = () => {
         try {
@@ -89,7 +95,7 @@ export function useSessionLifecycle() {
       sendProbe();
       bargeInProbeTimerRef.current = window.setInterval(sendProbe, 260);
     },
-    [client, stopBargeInProbe],
+    [client, setAssistantVolume, stopBargeInProbe],
   );
 
   const sendAudioChunk = (payload: {
@@ -152,6 +158,15 @@ export function useSessionLifecycle() {
     inputSource,
     visionEnabled,
     onBargeInProbe,
+    onUserSpeechActivity: (active) => {
+      if (!active) {
+        setAssistantVolume(1);
+        return;
+      }
+      if (useSessionStore.getState().assistantAudioStatus === "speaking") {
+        setAssistantVolume(0);
+      }
+    },
     sendAudioChunk,
     commitTurn,
     captureFrameForTurn,
@@ -235,6 +250,11 @@ export function useSessionLifecycle() {
       }
       if (event.type === "asr.partial" && event.verdict === "confirmed") {
         stopBargeInProbe();
+        stopAssistantSpeechRef.current();
+        useSessionStore.setState({
+          assistantAudioStatus: "idle",
+          systemMessage: "检测到你正在说话，已停止 AI 播报并开始新一轮录音。",
+        });
       }
     });
     client.connect();
