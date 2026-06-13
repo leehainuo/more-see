@@ -315,15 +315,15 @@ class AudioService:
             asr_provider=str(result.get("provider") or ""),
         )
 
-    async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> None:
+    async def handle_partial_request(self, websocket: WebSocket, payload: dict) -> dict[str, str | int] | None:
         session_id = payload.get("sessionId")
         request_id = str(payload.get("requestId", ""))
         if not session_id or not request_id:
-            return
+            return None
 
         result = await self.probe_barge_in(session_id)
         if result is None:
-            return
+            return None
 
         await websocket.send_json(
             {
@@ -337,6 +337,7 @@ class AudioService:
                 "verdict": result["verdict"],
             }
         )
+        return result
 
 
 audio_service = AudioService()

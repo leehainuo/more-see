@@ -261,7 +261,29 @@ def test_turn_commit_without_audio_returns_error() -> None:
         assert error_event["code"] == "empty_audio"
 
 
-def test_asr_partial_request_returns_disabled_status() -> None:
+def test_asr_partial_request_confirms_and_interrupts(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = {"value": False}
+
+    async def fake_handle_turn_commit(_websocket, payload):
+        session_store.set_assistant_speaking(payload["sessionId"], True)
+        session_store.set_assistant_transcript(payload["sessionId"], "我先继续讲一下当前页面")
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled["value"] = True
+            raise
+
+    async def fake_transcribe_partial(_chunks):
+        return {
+            "transcript": "打断一下我补充",
+            "provider": "volcengine",
+            "durationMs": 320,
+            "chunkCount": 2,
+        }
+
+    monkeypatch.setattr(audio_service, "handle_turn_commit", fake_handle_turn_commit)
+    monkeypatch.setattr(asr_adapter, "transcribe_partial", fake_transcribe_partial)
+
     with client.websocket_connect("/ws/session") as websocket:
         websocket.receive_json()
         websocket.send_json(
@@ -273,6 +295,16 @@ def test_asr_partial_request_returns_disabled_status() -> None:
 
         ready_event = websocket.receive_json()
         websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "turn.commit",
+                "sessionId": ready_event["sessionId"],
+                "turnId": "turn-barge-in",
+                "silenceMs": 1200,
+                "includeVision": False,
+            }
+        )
 
         websocket.send_json(
             {
@@ -305,9 +337,14 @@ def test_asr_partial_request_returns_disabled_status() -> None:
             }
         )
         partial_event = websocket.receive_json()
+        assert partial_event["type"] == "asr.partial"
+        assert partial_event["verdict"] == "confirmed"
 
-        assert partial_event["type"] == "session.status"
-        assert "已关闭打断功能" in partial_event["message"]
+        interrupted_event = websocket.receive_json()
+        assert interrupted_event["type"] == "assistant.interrupted"
+        assert interrupted_event["turnId"] == "turn-barge-in"
+
+    assert cancelled["value"] is True
 
 
 def test_assistant_interrupt_cancels_active_turn(monkeypatch: pytest.MonkeyPatch) -> None:

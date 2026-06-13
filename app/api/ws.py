@@ -164,14 +164,14 @@ async def session_ws(websocket: WebSocket) -> None:
                     }
                 )
             elif event_type == "asr.partial.request":
-                await websocket.send_json(
-                    {
-                        "type": "session.status",
-                        "sessionId": data.get("sessionId"),
-                        "level": "info",
-                        "message": "当前已关闭打断功能，不再执行实时打断检测。",
-                    }
-                )
+                session_id = data.get("sessionId")
+                if not session_id:
+                    continue
+                if not audio_service.should_probe_barge_in(str(session_id)):
+                    continue
+                result = await audio_service.handle_partial_request(websocket, data)
+                if result is not None and result.get("verdict") == "confirmed":
+                    await cancel_active_turn("barge_in")
             elif event_type == "session.end":
                 await cancel_active_turn("session_end")
                 if data.get("sessionId"):

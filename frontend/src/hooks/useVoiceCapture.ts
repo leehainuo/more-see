@@ -6,7 +6,7 @@ type VoiceCaptureOptions = {
   sessionId: string | null;
   inputSource: "camera" | "screen";
   visionEnabled: boolean;
-  onBargeIn?: (sessionId: string) => void;
+  onBargeInProbe?: (sessionId: string) => void;
   sendAudioChunk: (payload: {
     sessionId: string;
     chunkId: string;
@@ -73,7 +73,7 @@ export function useVoiceCapture({
   sessionId,
   inputSource,
   visionEnabled,
-  onBargeIn,
+  onBargeInProbe,
   sendAudioChunk,
   commitTurn,
   captureFrameForTurn,
@@ -298,7 +298,7 @@ export function useVoiceCapture({
 
           if (assistantSpeaking && !bargeInTriggeredRef.current) {
             bargeInTriggeredRef.current = true;
-            onBargeIn?.(sessionId);
+            onBargeInProbe?.(sessionId);
           }
 
           isTurnActiveRef.current = true;
@@ -341,7 +341,7 @@ export function useVoiceCapture({
     setRecordedChunks,
     setRecordingState,
     visionEnabled,
-    onBargeIn,
+    onBargeInProbe,
   ]);
 
   useEffect(() => {
