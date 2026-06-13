@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     ark_llm_model: str = "doubao-seed-1-6-251015"
     ark_vision_model: str = "doubao-seed-1-6-vision-250815"
+    vision_cache_enabled: bool = True
+    vision_cache_max_entries: int = 128
 
     mysql_dsn: str = "mysql+asyncmy://moresee:moresee@127.0.0.1:3306/more_see?charset=utf8mb4"
     mysql_echo: bool = False

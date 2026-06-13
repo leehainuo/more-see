@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from collections import OrderedDict
 
 from fastapi import WebSocket
 
 from app.adapters.vision_adapter import vision_adapter
+from app.config import settings
 from app.persistence.service import persistence_service
 from app.state.session_store import FrameSnapshot, session_store, utc_now_iso
 
@@ -12,8 +15,34 @@ from app.state.session_store import FrameSnapshot, session_store, utc_now_iso
 class VisionService:
     def __init__(self) -> None:
         self._summary_tasks: dict[str, asyncio.Task[dict[str, str | bool]]] = {}
+        self._summary_cache: OrderedDict[str, dict[str, str]] = OrderedDict()
 
     async def _summarize_frame(self, frame: FrameSnapshot) -> dict[str, str | bool]:
+        cache_key = hashlib.sha256(frame.image_base64.encode("utf-8")).hexdigest()
+        if settings.vision_cache_enabled:
+            cached = self._summary_cache.get(cache_key)
+            if cached is not None:
+                self._summary_cache.move_to_end(cache_key)
+                frame.summary = cached.get("summary") or ""
+                frame.summary_provider = cached.get("provider") or "unknown"
+                frame.summary_cache_hit = True
+                frame.summary_error = None
+                frame.summarized_at = utc_now_iso()
+                persistence_service.record_frame_summary(
+                    session_id=frame.session_id,
+                    frame_id=frame.frame_id,
+                    summary=frame.summary,
+                    provider=frame.summary_provider,
+                    cache_hit=True,
+                    summarized_at=frame.summarized_at,
+                    summary_error=None,
+                )
+                return {
+                    "summary": frame.summary,
+                    "provider": frame.summary_provider,
+                    "cacheHit": True,
+                }
+
         try:
             result = await vision_adapter.summarize(frame)
         except Exception as exc:
@@ -34,6 +63,14 @@ class VisionService:
         frame.summary_cache_hit = bool(result.get("cacheHit", False))
         frame.summary_error = None
         frame.summarized_at = utc_now_iso()
+        if settings.vision_cache_enabled and frame.summary is not None:
+            self._summary_cache[cache_key] = {
+                "summary": frame.summary,
+                "provider": frame.summary_provider or "unknown",
+            }
+            self._summary_cache.move_to_end(cache_key)
+            while len(self._summary_cache) > max(1, settings.vision_cache_max_entries):
+                self._summary_cache.popitem(last=False)
         persistence_service.record_frame_summary(
             session_id=frame.session_id,
             frame_id=frame.frame_id,

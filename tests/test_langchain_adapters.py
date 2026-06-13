@@ -105,6 +105,7 @@ async def test_vision_adapter_volcengine_summary(monkeypatch) -> None:
 
     result = await vision_module.vision_adapter.summarize(
         FrameSnapshot(
+            session_id="session-test",
             frame_id="frame-1",
             input_source="camera",
             image_base64="ZmFrZQ==",
@@ -149,6 +150,7 @@ async def test_vision_adapter_fallback_summary(monkeypatch) -> None:
 
     result = await vision_module.vision_adapter.summarize(
         FrameSnapshot(
+            session_id="session-test",
             frame_id="frame-2",
             input_source="camera",
             image_base64="ZmFrZQ==",
