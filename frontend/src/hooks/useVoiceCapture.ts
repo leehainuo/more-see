@@ -26,11 +26,14 @@ type VoiceCaptureOptions = {
 };
 
 const SILENCE_THRESHOLD = 0.02;
+const ECHO_START_THRESHOLD_MULTIPLIER = 3.8;
 const AUTO_COMMIT_MS = 700;
 const TARGET_SAMPLE_RATE = 16000;
 // 8192 samples at common browser input rates lands around 170-185ms,
 // which is closer to the ASR doc recommendation of 100-200ms per chunk.
 const PROCESSOR_BUFFER_SIZE = 8192;
+const PRE_ROLL_CHUNKS = 2;
+const TAIL_SILENCE_MS = 500;
 
 function arrayBufferToBase64(arrayBuffer: ArrayBufferLike) {
   const bytes = new Uint8Array(arrayBuffer);
@@ -94,6 +97,8 @@ export function useVoiceCapture({
   const visionCaptureRequestedRef = useRef(false);
   const bargeInTriggeredRef = useRef(false);
   const speechActiveRef = useRef(false);
+  const lastSpeechAtRef = useRef<number | null>(null);
+  const preRollChunksRef = useRef<Int16Array[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const inputLevel = useSessionStore((state) => state.inputLevel);
   const recordedChunks = useSessionStore((state) => state.recordedChunks);
@@ -111,6 +116,8 @@ export function useVoiceCapture({
   const resetTurnState = useCallback(() => {
     isTurnActiveRef.current = false;
     bargeInTriggeredRef.current = false;
+    lastSpeechAtRef.current = null;
+    preRollChunksRef.current = [];
     if (speechActiveRef.current) {
       speechActiveRef.current = false;
       onUserSpeechActivity?.(false);
@@ -306,7 +313,6 @@ export function useVoiceCapture({
           return;
         }
 
-        const chunkDurationMs = Math.round((pcm16.length / TARGET_SAMPLE_RATE) * 1000);
         let sumSquares = 0;
         for (let index = 0; index < channelData.length; index += 1) {
           sumSquares += channelData[index] * channelData[index];
@@ -315,12 +321,35 @@ export function useVoiceCapture({
         const storeState = useSessionStore.getState();
         const assistantSpeaking = storeState.assistantAudioStatus === "speaking";
         const canStartTurn = ["ready", "recording", "streaming"].includes(storeState.sessionStatus);
+        const now = performance.now();
+
+        const sendPcmChunk = (pcm: Int16Array) => {
+          const durationMs = Math.round((pcm.length / TARGET_SAMPLE_RATE) * 1000);
+          chunkCountRef.current += 1;
+          recordedDurationMsRef.current += durationMs;
+          setRecordedChunks(chunkCountRef.current);
+          sendAudioChunk({
+            sessionId,
+            chunkId: crypto.randomUUID(),
+            mimeType: "audio/pcm;rate=16000",
+            base64Audio: arrayBufferToBase64(pcm.buffer),
+            durationMs,
+          });
+        };
 
         if (!isTurnActiveRef.current) {
           if (!canStartTurn) {
             return;
           }
-          const startThreshold = assistantSpeaking ? SILENCE_THRESHOLD * 3.5 : SILENCE_THRESHOLD;
+          if (!assistantSpeaking) {
+            preRollChunksRef.current = [...preRollChunksRef.current, pcm16].slice(-PRE_ROLL_CHUNKS);
+          } else {
+            preRollChunksRef.current = [];
+          }
+
+          const startThreshold = assistantSpeaking
+            ? SILENCE_THRESHOLD * ECHO_START_THRESHOLD_MULTIPLIER
+            : SILENCE_THRESHOLD;
           if (rms <= startThreshold) {
             return;
           }
@@ -337,19 +366,26 @@ export function useVoiceCapture({
           isTurnActiveRef.current = true;
           chunkCountRef.current = 0;
           recordedDurationMsRef.current = 0;
+          lastSpeechAtRef.current = now;
           cleanupSilenceTimer();
+
+          if (!assistantSpeaking && preRollChunksRef.current.length > 0) {
+            preRollChunksRef.current.forEach((chunk) => {
+              sendPcmChunk(chunk);
+            });
+          }
+          preRollChunksRef.current = [];
         }
 
-        chunkCountRef.current += 1;
-        recordedDurationMsRef.current += chunkDurationMs;
-        setRecordedChunks(chunkCountRef.current);
-        sendAudioChunk({
-          sessionId,
-          chunkId: crypto.randomUUID(),
-          mimeType: "audio/pcm;rate=16000",
-          base64Audio: arrayBufferToBase64(pcm16.buffer),
-          durationMs: chunkDurationMs,
-        });
+        if (rms > SILENCE_THRESHOLD) {
+          lastSpeechAtRef.current = now;
+        }
+        const lastSpeechAt = lastSpeechAtRef.current ?? now;
+        if (now - lastSpeechAt > TAIL_SILENCE_MS) {
+          return;
+        }
+
+        sendPcmChunk(pcm16);
       };
 
       setRecordingState("ready", 0);

@@ -338,8 +338,7 @@ export default function Workspace() {
     sessionStatus !== "closed";
   const isRecordButtonExpanded = sessionStatus === "recording" || isCaptureBooting;
   const isScreenMode = inputSource === "screen";
-  const sourceSwitchDisabled =
-    isCapturing || sessionStatus === "recognizing" || sessionStatus === "transcribing";
+  const sourceSwitchDisabled = sessionStatus === "recognizing" || sessionStatus === "transcribing";
 
   const handleSourceChange = (nextSource: "camera" | "screen") => {
     if (sourceSwitchDisabled || inputSource === nextSource) {
