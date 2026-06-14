@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import desc, func, select, text, update
+from sqlalchemy import delete, desc, func, select, text, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -11,6 +11,38 @@ from app.persistence.models import Base, FrameRow, MemoryChunkRow, SessionRow, T
 
 
 class PersistenceRepository:
+    @staticmethod
+    def _build_session_filters(
+        *,
+        user_id: int | None = None,
+        query: str | None = None,
+        input_source: str | None = None,
+        status: str | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+    ) -> list[object]:
+        filters: list[object] = []
+        normalized_query = (query or "").strip()
+        normalized_input_source = (input_source or "").strip()
+        normalized_status = (status or "").strip()
+
+        if user_id is not None:
+            filters.append(SessionRow.user_id == user_id)
+        if normalized_query:
+            filters.append(SessionRow.session_id.ilike(f"%{normalized_query}%"))
+        if normalized_input_source in {"camera", "screen"}:
+            filters.append(SessionRow.input_source == normalized_input_source)
+        if normalized_status == "active":
+            filters.append(SessionRow.ended_at.is_(None))
+        elif normalized_status == "ended":
+            filters.append(SessionRow.ended_at.is_not(None))
+        if updated_from is not None:
+            filters.append(SessionRow.updated_at >= updated_from)
+        if updated_to is not None:
+            filters.append(SessionRow.updated_at < updated_to)
+
+        return filters
+
     async def ensure_schema(self) -> None:
         from app.persistence.db import get_engine
 
@@ -308,20 +340,56 @@ class PersistenceRepository:
             )
             await session.commit()
 
-    async def list_sessions(self, *, user_id: int, limit: int = 20, offset: int = 0) -> list[SessionRow]:
+    async def list_sessions(
+        self,
+        *,
+        user_id: int,
+        limit: int = 20,
+        offset: int = 0,
+        query: str | None = None,
+        input_source: str | None = None,
+        status: str | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+    ) -> list[SessionRow]:
         async with session_scope() as session:
+            filters = self._build_session_filters(
+                user_id=user_id,
+                query=query,
+                input_source=input_source,
+                status=status,
+                updated_from=updated_from,
+                updated_to=updated_to,
+            )
             result = await session.scalars(
                 select(SessionRow)
-                .where(SessionRow.user_id == user_id)
+                .where(*filters)
                 .order_by(desc(SessionRow.updated_at))
                 .limit(limit)
                 .offset(offset)
             )
             return list(result)
 
-    async def count_sessions(self, *, user_id: int) -> int:
+    async def count_sessions(
+        self,
+        *,
+        user_id: int,
+        query: str | None = None,
+        input_source: str | None = None,
+        status: str | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+    ) -> int:
         async with session_scope() as session:
-            value = await session.scalar(select(func.count(SessionRow.id)).where(SessionRow.user_id == user_id))
+            filters = self._build_session_filters(
+                user_id=user_id,
+                query=query,
+                input_source=input_source,
+                status=status,
+                updated_from=updated_from,
+                updated_to=updated_to,
+            )
+            value = await session.scalar(select(func.count(SessionRow.id)).where(*filters))
             return int(value or 0)
 
     async def list_sessions_with_details(
@@ -338,16 +406,50 @@ class PersistenceRepository:
             )
             return list(result)
 
-    async def count_all_sessions(self) -> int:
+    async def count_all_sessions(
+        self,
+        *,
+        query: str | None = None,
+        input_source: str | None = None,
+        status: str | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+    ) -> int:
         async with session_scope() as session:
-            value = await session.scalar(select(func.count(SessionRow.id)))
+            filters = self._build_session_filters(
+                query=query,
+                input_source=input_source,
+                status=status,
+                updated_from=updated_from,
+                updated_to=updated_to,
+            )
+            value = await session.scalar(select(func.count(SessionRow.id)).where(*filters))
             return int(value or 0)
 
-    async def list_all_sessions_with_details(self, *, limit: int = 50, offset: int = 0) -> list[SessionRow]:
+    async def list_all_sessions_with_details(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        query: str | None = None,
+        input_source: str | None = None,
+        status: str | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+    ) -> list[SessionRow]:
         async with session_scope() as session:
+            filters = self._build_session_filters(
+                query=query,
+                input_source=input_source,
+                status=status,
+                updated_from=updated_from,
+                updated_to=updated_to,
+            )
             result = await session.scalars(
                 select(SessionRow)
+                # 使用 selectinload 预加载 turns/frames，避免遍历会话列表时逐条回表触发 N+1
                 .options(selectinload(SessionRow.turns), selectinload(SessionRow.frames))
+                .where(*filters)
                 .order_by(desc(SessionRow.updated_at))
                 .limit(limit)
                 .offset(offset)
@@ -370,6 +472,23 @@ class PersistenceRepository:
                 .options(selectinload(SessionRow.turns), selectinload(SessionRow.frames))
                 .where(SessionRow.session_id == session_id)
             )
+
+    async def delete_session(self, *, user_id: int, session_id: str) -> bool:
+        async with session_scope() as session:
+            # 批量删除 memory/turn/frame/session，避免逐条查询删除带来的额外往返和 N+1 风险
+            deleted_session_count = await session.scalar(
+                select(func.count(SessionRow.id)).where(SessionRow.user_id == user_id, SessionRow.session_id == session_id)
+            )
+            if not deleted_session_count:
+                await session.commit()
+                return False
+
+            await session.execute(delete(MemoryChunkRow).where(MemoryChunkRow.user_id == user_id, MemoryChunkRow.session_id == session_id))
+            await session.execute(delete(TurnRow).where(TurnRow.session_id == session_id))
+            await session.execute(delete(FrameRow).where(FrameRow.session_id == session_id))
+            await session.execute(delete(SessionRow).where(SessionRow.user_id == user_id, SessionRow.session_id == session_id))
+            await session.commit()
+            return True
 
     @staticmethod
     def _parse_dt(value: str) -> datetime:

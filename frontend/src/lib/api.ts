@@ -1,3 +1,5 @@
+import type { SessionStatusFilter } from "@/lib/session-filters";
+
 export type HealthResponse = {
   status: string;
   app: string;
@@ -111,6 +113,14 @@ export type SessionDetailResponse = {
   frames: SessionFrameItem[];
 };
 
+type SessionListFilters = {
+  query?: string;
+  inputSource?: "camera" | "screen";
+  status?: Exclude<SessionStatusFilter, "all">;
+  updatedFrom?: string;
+  updatedTo?: string;
+};
+
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const controller = init?.signal ? null : new AbortController();
   const timeout = init?.signal ? null : window.setTimeout(() => controller?.abort(), 6500);
@@ -163,10 +173,34 @@ export async function loginOrRegister(username: string, password: string): Promi
 export async function fetchAdminCostSessions(params?: {
   page?: number;
   pageSize?: number;
+  query?: string;
+  inputSource?: "camera" | "screen";
+  status?: Exclude<SessionStatusFilter, "all">;
+  updatedFrom?: string;
+  updatedTo?: string;
 }): Promise<AdminCostSessionsResponse> {
   const page = params?.page ?? 1;
   const pageSize = params?.pageSize ?? 10;
-  return fetchJson<AdminCostSessionsResponse>(`/api/admin/costs/sessions?page=${page}&pageSize=${pageSize}`);
+  const searchParams = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  if (params?.query) {
+    searchParams.set("query", params.query);
+  }
+  if (params?.inputSource) {
+    searchParams.set("inputSource", params.inputSource);
+  }
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  if (params?.updatedFrom) {
+    searchParams.set("updatedFrom", params.updatedFrom);
+  }
+  if (params?.updatedTo) {
+    searchParams.set("updatedTo", params.updatedTo);
+  }
+  return fetchJson<AdminCostSessionsResponse>(`/api/admin/costs/sessions?${searchParams.toString()}`);
 }
 
 export async function fetchAdminCostSessionDetail(sessionId: string): Promise<AdminCostSessionDetailResponse> {
@@ -179,12 +213,39 @@ export async function logout(): Promise<{ ok: boolean }> {
   });
 }
 
-export async function fetchSessions(params?: { page?: number; pageSize?: number }): Promise<SessionListResponse> {
+export async function fetchSessions(
+  params?: { page?: number; pageSize?: number } & SessionListFilters,
+): Promise<SessionListResponse> {
   const page = params?.page ?? 1;
   const pageSize = params?.pageSize ?? 10;
-  return fetchJson<SessionListResponse>(`/api/sessions?page=${page}&pageSize=${pageSize}`);
+  const searchParams = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  if (params?.query) {
+    searchParams.set("query", params.query);
+  }
+  if (params?.inputSource) {
+    searchParams.set("inputSource", params.inputSource);
+  }
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  if (params?.updatedFrom) {
+    searchParams.set("updatedFrom", params.updatedFrom);
+  }
+  if (params?.updatedTo) {
+    searchParams.set("updatedTo", params.updatedTo);
+  }
+  return fetchJson<SessionListResponse>(`/api/sessions?${searchParams.toString()}`);
 }
 
 export async function fetchSessionDetail(sessionId: string): Promise<SessionDetailResponse> {
   return fetchJson<SessionDetailResponse>(`/api/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export async function deleteSession(sessionId: string): Promise<{ ok: boolean; sessionId: string }> {
+  return fetchJson<{ ok: boolean; sessionId: string }>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
 }

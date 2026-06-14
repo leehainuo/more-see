@@ -1,3 +1,5 @@
+from datetime import date, datetime, time, timedelta
+
 from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,6 +27,28 @@ class AuthLoginRequest(BaseModel):
 class AuthRegisterRequest(BaseModel):
     username: str = Field(min_length=2, max_length=64)
     password: str = Field(min_length=4, max_length=128)
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _parse_date_boundary(value: str | None, *, is_end: bool) -> datetime | None:
+    normalized = _normalize_optional_text(value)
+    if normalized is None:
+        return None
+
+    try:
+        parsed_date = date.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="日期格式必须为 YYYY-MM-DD") from exc
+
+    if is_end:
+        return datetime.combine(parsed_date, time.min) + timedelta(days=1)
+    return datetime.combine(parsed_date, time.min)
 
 
 @router.get("/healthz")
@@ -113,10 +137,32 @@ async def list_cost_sessions(
     _user_id: int = Depends(require_super_user_id),
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=10, ge=1, le=50),
+    query: str | None = Query(default=None, max_length=64),
+    inputSource: str | None = Query(default=None, pattern="^(camera|screen)$"),
+    status: str | None = Query(default=None, pattern="^(active|ended)$"),
+    updatedFrom: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    updatedTo: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> JSONResponse:
-    total = await persistence_repository.count_all_sessions()
+    normalized_query = _normalize_optional_text(query)
+    updated_from = _parse_date_boundary(updatedFrom, is_end=False)
+    updated_to = _parse_date_boundary(updatedTo, is_end=True)
+    total = await persistence_repository.count_all_sessions(
+        query=normalized_query,
+        input_source=inputSource,
+        status=status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+    )
     offset = (page - 1) * pageSize
-    rows = await persistence_repository.list_all_sessions_with_details(limit=pageSize, offset=offset)
+    rows = await persistence_repository.list_all_sessions_with_details(
+        limit=pageSize,
+        offset=offset,
+        query=normalized_query,
+        input_source=inputSource,
+        status=status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+    )
     items = []
     for row in rows:
         turns = sorted(row.turns, key=lambda item: item.created_at)
@@ -194,10 +240,34 @@ async def list_sessions(
     user_id: int = Depends(get_current_user_id),
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=10, ge=1, le=50),
+    query: str | None = Query(default=None, max_length=64),
+    inputSource: str | None = Query(default=None, pattern="^(camera|screen)$"),
+    status: str | None = Query(default=None, pattern="^(active|ended)$"),
+    updatedFrom: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    updatedTo: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> JSONResponse:
-    total = await persistence_repository.count_sessions(user_id=user_id)
+    normalized_query = _normalize_optional_text(query)
+    updated_from = _parse_date_boundary(updatedFrom, is_end=False)
+    updated_to = _parse_date_boundary(updatedTo, is_end=True)
+    total = await persistence_repository.count_sessions(
+        user_id=user_id,
+        query=normalized_query,
+        input_source=inputSource,
+        status=status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+    )
     offset = (page - 1) * pageSize
-    rows = await persistence_repository.list_sessions(user_id=user_id, limit=pageSize, offset=offset)
+    rows = await persistence_repository.list_sessions(
+        user_id=user_id,
+        limit=pageSize,
+        offset=offset,
+        query=normalized_query,
+        input_source=inputSource,
+        status=status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+    )
     return JSONResponse(
         content={
             "page": page,
@@ -261,3 +331,11 @@ async def get_session_detail(session_id: str, user_id: int = Depends(get_current
             ],
         }
     )
+
+
+@router.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str, user_id: int = Depends(get_current_user_id)) -> JSONResponse:
+    deleted = await persistence_repository.delete_session(user_id=user_id, session_id=session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return JSONResponse(content={"ok": True, "sessionId": session_id})
