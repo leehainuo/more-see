@@ -1,12 +1,65 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/storage
+      - ../init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     environment:
       POSTGRES_DB: more_see
       POSTGRES_USER: moresee
       POSTGRES_PASSWORD: moresee
+      PGDATA: /var/lib/postgresql/storage/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moresee -d more_see"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "6380:6379"
     volumes:
-      - ./data/pg_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: scripts/docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      DB_DSN: postgresql+asyncpg://moresee:moresee@postgres:5432/more_see
+      REDIS_DSN: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: scripts/docker/frontend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "8080:80"

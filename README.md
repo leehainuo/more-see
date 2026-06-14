@@ -145,6 +145,42 @@ npm run dev
 
 - 前端地址：<http://127.0.0.1:5173>
 
+## Docker Compose 启动
+
+### 1. 一键部署
+
+```bash
+./scripts/docker/start.sh
+```
+
+脚本会自动完成以下工作：
+
+- 检查 Docker 与 Docker daemon 是否可用
+- 自动创建 `scripts/docker/data/postgres/pgdata` 和 `scripts/docker/data/redis`
+- 若 `scripts/docker/.env` 不存在，则基于根目录 `.env.example` 自动生成
+- 执行 `docker compose -f scripts/docker/docker-compose.yml up --build -d`
+
+### 2. 首次启动后的环境变量
+
+首次执行后，如需接入真实火山 / 方舟能力，请编辑 `scripts/docker/.env`，补齐模型密钥与相关配置，然后重新执行：
+
+```bash
+./scripts/docker/start.sh
+```
+
+启动后默认可访问：
+
+- 前端地址：<http://127.0.0.1:8080>
+- 后端健康检查：<http://127.0.0.1:8000/healthz>
+
+### 3. 常用容器命令
+
+```bash
+./scripts/docker/stop.sh
+./scripts/docker/start.sh
+docker compose -f scripts/docker/docker-compose.yml logs -f
+```
+
 ## 常用命令
 
 ```bash
@@ -162,7 +198,8 @@ cd frontend && npm run lint
 
 ## 环境变量
 
-复制 `.env.example` 为 `.env` 后按需填写：
+本地开发可复制 `.env.example` 为根目录 `.env`；
+Docker Compose 启动时则使用 `scripts/docker/.env`。
 
 - `ASR_PROVIDER=volcengine`
 - `VISION_PROVIDER=volcengine`
@@ -183,4 +220,3 @@ cd frontend && npm run lint
 - 权限规则：`users.is_super = 1` 才能访问
 - 后端接口：`GET /api/admin/costs/sessions`
 - 计费口径：按火山官方文档后付费单价做预估，可通过环境变量调整单价
-
