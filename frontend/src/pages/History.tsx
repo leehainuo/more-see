@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { usePaginatedSessionList } from "@/hooks/usePaginatedSessionList";
 import type { SessionDetailResponse, SessionListItem } from "@/lib/api";
 import { deleteSession, fetchSessionDetail, fetchSessions } from "@/lib/api";
 import {
@@ -38,52 +39,17 @@ export default function History() {
     };
   }, [searchParams]);
   const filterApiParams = useMemo(() => toSessionFilterApiParams(activeFilters), [activeFilters]);
-  const [items, setItems] = useState<SessionListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
-  const [total, setTotal] = useState(0);
   const [selectedDetail, setSelectedDetail] = useState<SessionDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [confirmDeleteSessionId, setConfirmDeleteSessionId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadSessions = useCallback(async (targetPage: number, append: boolean) => {
-    setLoading(true);
-    if (!append) {
-      setError(null);
-    }
-    try {
-      const result = await fetchSessions({ page: targetPage, pageSize, ...filterApiParams });
-      setPage(result.page);
-      setTotal(result.total);
-      setItems((prev) =>
-        append ? [...prev, ...result.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId))] : result.items,
-      );
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "加载失败");
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [filterApiParams]);
-
-  useEffect(() => {
-    void loadSessions(1, false);
-  }, [loadSessions]);
-
-  const canLoadMore = items.length < total;
-
-  async function handleLoadMore() {
-    if (loadingMore || loading || !canLoadMore) {
-      return;
-    }
-    setLoadingMore(true);
-    setError(null);
-    void loadSessions(page + 1, true);
-  }
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const { items, loading, loadingMore, canLoadMore, loadMore, reload, error: listError } =
+    usePaginatedSessionList<SessionListItem>({
+      filters: filterApiParams,
+      fetchPage: fetchSessions,
+    });
+  const error = listError ?? detailError;
 
   function handleApplyFilters(nextFilters: SessionFilters) {
     setSearchParams(createSessionSearchParams(nextFilters));
@@ -104,7 +70,7 @@ export default function History() {
       if (selectedSessionId === sessionId) {
         setSearchParams(createSessionSearchParams(activeFilters));
       }
-      await loadSessions(1, false);
+      await reload();
     } catch (exc) {
       toast.error(exc instanceof Error ? exc.message : "删除失败");
     } finally {
@@ -114,12 +80,12 @@ export default function History() {
 
   useEffect(() => {
     if (!selectedSessionId) {
-      setSelectedDetail(null);
       return;
     }
     let cancelled = false;
-    setDetailLoading(true);
     void (async () => {
+      setDetailLoading(true);
+      setDetailError(null);
       try {
         const detail = await fetchSessionDetail(selectedSessionId);
         if (!cancelled) {
@@ -127,7 +93,7 @@ export default function History() {
         }
       } catch (exc) {
         if (!cancelled) {
-          setError(exc instanceof Error ? exc.message : "加载失败");
+          setDetailError(exc instanceof Error ? exc.message : "加载失败");
         }
       } finally {
         if (!cancelled) {
@@ -178,7 +144,7 @@ export default function History() {
                 <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">列表</p>
                 <div className="grid gap-2">
                   {loading ? (
-                    <div className="rounded-[20px] border border-black/10 bg-black/[0.02] p-4 text-sm text-zinc-600">
+                    <div className="rounded-[20px] border border-black/10 bg-black/2 p-4 text-sm text-zinc-600">
                       正在加载会话列表...
                     </div>
                   ) : items.length ? (
@@ -188,8 +154,8 @@ export default function History() {
                           key={item.sessionId}
                           className={`group relative rounded-[20px] border transition-colors ${
                             item.sessionId === selectedSessionId
-                              ? "border-black/20 bg-black/[0.03]"
-                              : "border-black/10 bg-white hover:bg-black/[0.02]"
+                              ? "border-black/20 bg-black/3"
+                              : "border-black/10 bg-white hover:bg-black/2"
                           }`}
                         >
                           <button
@@ -224,14 +190,16 @@ export default function History() {
                           variant="outline"
                           className="w-full"
                           disabled={!canLoadMore || loadingMore}
-                          onClick={handleLoadMore}
+                          onClick={() => {
+                            void loadMore();
+                          }}
                         >
                           {loadingMore ? "正在加载..." : canLoadMore ? "加载更多" : "没有更多了"}
                         </Button>
                       </div>
                     </>
                   ) : (
-                    <div className="rounded-[20px] border border-black/10 bg-black/[0.02] p-4 text-sm text-zinc-600">
+                    <div className="rounded-[20px] border border-black/10 bg-black/2 p-4 text-sm text-zinc-600">
                       暂无会话记录
                     </div>
                   )}
@@ -260,7 +228,7 @@ export default function History() {
                         </Button>
                       </div>
 
-                      <div className="rounded-[20px] border border-black/10 bg-black/[0.02] p-4">
+                      <div className="rounded-[20px] border border-black/10 bg-black/2 p-4">
                         <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">Summary</p>
                         <p className="mt-2 text-sm leading-7 text-zinc-700">{summaryLine}</p>
                       </div>
@@ -272,7 +240,7 @@ export default function History() {
                               <p className="text-xs text-zinc-500">用户</p>
                               <p className="mt-2 text-sm leading-7 text-zinc-800">{turn.userText}</p>
                               {turn.visionSummary ? (
-                                <div className="mt-3 rounded-[16px] border border-black/10 bg-black/[0.02] p-3">
+                                <div className="mt-3 rounded-[16px] border border-black/10 bg-black/2 p-3">
                                   <p className="text-xs text-zinc-500">视觉摘要</p>
                                   <p className="mt-2 text-sm leading-7 text-zinc-700">{turn.visionSummary}</p>
                                 </div>

@@ -6,6 +6,7 @@ import { SessionFilterBar } from "@/components/SessionFilterBar";
 import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { usePaginatedSessionList } from "@/hooks/usePaginatedSessionList";
 import {
   fetchAdminCostSessionDetail,
   fetchAdminCostSessions,
@@ -38,14 +39,18 @@ export default function Costs() {
   const isSuper = useAuthStore((state) => state.isSuper);
   const activeFilters = useMemo(() => parseSessionFilters(searchParams), [searchParams]);
   const filterApiParams = useMemo(() => toSessionFilterApiParams(activeFilters), [activeFilters]);
-  const [items, setItems] = useState<AdminCostSessionItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
-  const [total, setTotal] = useState(0);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [detailsBySessionId, setDetailsBySessionId] = useState<Record<string, AdminCostSessionDetailResponse>>({});
+  const { items, loading, loadingMore, canLoadMore, loadMore } = usePaginatedSessionList<AdminCostSessionItem>({
+    enabled: isSuper === 1,
+    filters: filterApiParams,
+    fetchPage: fetchAdminCostSessions,
+    getErrorMessage: (_error, phase) => (phase === "loadMore" ? "加载更多失败" : "加载成本面板失败"),
+    onError: (message) => {
+      toast.error(message);
+    },
+  });
+  const resolvedExpandedSessionId = items.some((item) => item.sessionId === expandedSessionId) ? expandedSessionId : null;
 
   useEffect(() => {
     if (isSuper !== 1) {
@@ -53,61 +58,6 @@ export default function Costs() {
       navigate("/", { replace: true });
     }
   }, [isSuper, navigate]);
-
-  useEffect(() => {
-    if (isSuper !== 1) {
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    void (async () => {
-      try {
-        const response = await fetchAdminCostSessions({ page: 1, pageSize, ...filterApiParams });
-        if (!cancelled) {
-          setPage(response.page);
-          setTotal(response.total);
-          setItems(response.items);
-          setExpandedSessionId((current) =>
-            response.items.some((item) => item.sessionId === current) ? current : null,
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          toast.error("加载成本面板失败");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [filterApiParams, isSuper]);
-
-  const canLoadMore = items.length < total;
-
-  async function handleLoadMore() {
-    if (loading || loadingMore || !canLoadMore) {
-      return;
-    }
-    setLoadingMore(true);
-    try {
-      const nextPage = page + 1;
-      const response = await fetchAdminCostSessions({ page: nextPage, pageSize, ...filterApiParams });
-      setPage(response.page);
-      setTotal(response.total);
-      setItems((prev) => [
-        ...prev,
-        ...response.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId)),
-      ]);
-    } catch {
-      toast.error("加载更多失败");
-    } finally {
-      setLoadingMore(false);
-    }
-  }
 
   function handleApplyFilters(nextFilters: SessionFilters) {
     setSearchParams(createSessionSearchParams(nextFilters));
@@ -147,7 +97,7 @@ export default function Costs() {
                       type="button"
                       className="flex items-center justify-between gap-3 text-left"
                       onClick={() => {
-                        const next = expandedSessionId === item.sessionId ? null : item.sessionId;
+                        const next = resolvedExpandedSessionId === item.sessionId ? null : item.sessionId;
                         setExpandedSessionId(next);
                         if (next && !detailsBySessionId[next]) {
                           void (async () => {
@@ -198,7 +148,7 @@ export default function Costs() {
                       </div>
                     </div>
 
-                    {expandedSessionId === item.sessionId ? (
+                    {resolvedExpandedSessionId === item.sessionId ? (
                       <div className="rounded-2xl border border-black/10 bg-white px-4 py-4 text-sm text-zinc-700">
                         {detailsBySessionId[item.sessionId] ? (
                           <div className="space-y-3">
@@ -244,7 +194,9 @@ export default function Costs() {
                     variant="outline"
                     className="w-full"
                     disabled={!canLoadMore || loadingMore}
-                    onClick={handleLoadMore}
+                    onClick={() => {
+                      void loadMore();
+                    }}
                   >
                     {loadingMore ? "正在加载..." : canLoadMore ? "加载更多" : "没有更多了"}
                   </Button>
