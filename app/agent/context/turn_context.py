@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from app.agent.context.memory_context import ConversationMemoryContext, build_memory_context
 from app.agent.session_store import TurnRecord, session_store
 from app.core.config import settings
 from app.services.memory_service import memory_service
@@ -11,8 +12,7 @@ from app.services.memory_service import memory_service
 @dataclass(slots=True)
 class TurnReplyContext:
     history_turns: list[TurnRecord]
-    session_summary: str | None
-    semantic_snippets: list[str]
+    memory_context: ConversationMemoryContext
 
 
 async def build_turn_reply_context(
@@ -44,8 +44,10 @@ async def build_turn_reply_context(
 
     return TurnReplyContext(
         history_turns=history_turns,
-        session_summary=session_summary,
-        semantic_snippets=semantic_snippets,
+        memory_context=build_memory_context(
+            session_summary=session_summary,
+            semantic_snippets=semantic_snippets,
+        ),
     )
 
 

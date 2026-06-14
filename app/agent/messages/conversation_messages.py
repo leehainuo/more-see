@@ -4,6 +4,7 @@ from typing import TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
+from app.agent.context import ConversationMemoryContext, build_memory_context_messages
 from app.agent.prompts import build_intent_system_message, get_conversation_system_prompt
 from app.agent.session_store import TurnRecord
 from app.integrations.speech.asr_adapter import is_fallback_transcript
@@ -14,8 +15,7 @@ class ConversationMessageState(TypedDict):
     vision_summary: str | None
     force_no_vision: bool
     history_turns: list[TurnRecord]
-    session_summary: str | None
-    semantic_snippets: list[str]
+    memory_context: ConversationMemoryContext
     messages: list[BaseMessage]
 
 
@@ -34,15 +34,7 @@ def build_messages(state: ConversationMessageState) -> dict[str, list[BaseMessag
     intent_system_message = build_intent_system_message(state["user_text"])
     if intent_system_message is not None:
         messages.append(intent_system_message)
-
-    session_summary = (state.get("session_summary") or "").strip()
-    if session_summary:
-        messages.append(SystemMessage(content=f"会话摘要（供参考）：{session_summary}"))
-
-    semantic_snippets = [snippet.strip() for snippet in state.get("semantic_snippets", []) if snippet.strip()]
-    if semantic_snippets:
-        rendered = "\n".join([f"- {snippet}" for snippet in semantic_snippets[:6]])
-        messages.append(SystemMessage(content=f"与本次问题相关的历史记忆：\n{rendered}"))
+    messages.extend(build_memory_context_messages(state["memory_context"]))
 
     for turn in state["history_turns"][-3:]:
         if is_fallback_transcript(turn.user_text):

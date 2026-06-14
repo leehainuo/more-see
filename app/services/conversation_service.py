@@ -126,8 +126,8 @@ class ConversationService:
         async for delta in llm_adapter.stream_reply(
             user_text=transcript,
             vision_summary=vision_summary,
-            session_summary=reply_context.session_summary,
-            semantic_snippets=reply_context.semantic_snippets,
+            session_summary=reply_context.memory_context.session_summary,
+            semantic_snippets=reply_context.memory_context.semantic_snippets,
             force_no_vision=force_no_vision,
             history_turns=reply_context.history_turns,
         ):

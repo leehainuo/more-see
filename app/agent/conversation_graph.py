@@ -3,6 +3,7 @@ from __future__ import annotations
 from langchain_core.messages import BaseMessage
 from langgraph.graph import END, START, StateGraph
 
+from app.agent.context import build_memory_context
 from app.agent.messages import ConversationMessageState, build_messages
 from app.agent.session_store import TurnRecord
 
@@ -25,12 +26,15 @@ async def build_conversation_messages(
     force_no_vision: bool = False,
     history_turns: list[TurnRecord],
 ) -> list[BaseMessage]:
+    memory_context = build_memory_context(
+        session_summary=session_summary,
+        semantic_snippets=semantic_snippets,
+    )
     result = await conversation_graph.ainvoke(
         {
             "user_text": user_text,
             "vision_summary": vision_summary,
-            "session_summary": session_summary,
-            "semantic_snippets": semantic_snippets or [],
+            "memory_context": memory_context,
             "force_no_vision": force_no_vision,
             "history_turns": history_turns,
             "messages": [],

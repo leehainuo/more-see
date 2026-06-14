@@ -62,6 +62,22 @@ async def test_build_conversation_messages_uses_history_and_vision_summary() -> 
 
 
 @pytest.mark.asyncio
+async def test_build_conversation_messages_injects_memory_context() -> None:
+    messages = await build_conversation_messages(
+        user_text="继续追问",
+        vision_summary=None,
+        session_summary="  用户正在比较两款耳机的降噪效果  ",
+        semantic_snippets=["  上次偏好头戴式  ", "", "预算大约 1500 元内"],
+        history_turns=[],
+    )
+
+    system_messages = [str(message.content) for message in messages if isinstance(message, SystemMessage)]
+
+    assert "会话摘要（供参考）：用户正在比较两款耳机的降噪效果" in system_messages
+    assert "与本次问题相关的历史记忆：\n- 上次偏好头戴式\n- 预算大约 1500 元内" in system_messages
+
+
+@pytest.mark.asyncio
 async def test_build_conversation_messages_skips_fallback_asr_history() -> None:
     messages = await build_conversation_messages(
         user_text="继续分析",
