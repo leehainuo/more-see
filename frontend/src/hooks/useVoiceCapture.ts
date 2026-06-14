@@ -509,9 +509,7 @@ export function useVoiceCapture({
       setIsCapturing(false);
     }
   }, [
-    captureFrameForTurn,
     isCapturing,
-    inputSource,
     monitorVolume,
     cleanupSilenceTimer,
     resetTurnState,
@@ -519,7 +517,6 @@ export function useVoiceCapture({
     sessionId,
     setRecordedChunks,
     setRecordingState,
-    visionEnabled,
     onBargeInProbe,
     onUserSpeechActivity,
   ]);

@@ -6,7 +6,7 @@ from app.services.intent_service import classify_user_intent
 async def test_vision_summary_cache_hit(monkeypatch):
     import app.services.vision_service as vision_service_module
     from app.services.vision_service import VisionService
-    from app.state.session_store import FrameSnapshot
+    from app.agent.session_store import FrameSnapshot
 
     call_count = {"count": 0}
 
@@ -57,7 +57,7 @@ async def test_vision_summary_cache_hit(monkeypatch):
 async def test_vision_summary_cache_isolated_by_intent_profile(monkeypatch):
     import app.services.vision_service as vision_service_module
     from app.services.vision_service import VisionService
-    from app.state.session_store import FrameSnapshot
+    from app.agent.session_store import FrameSnapshot
 
     call_count = {"count": 0}
 

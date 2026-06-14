@@ -39,12 +39,14 @@ export type AdminCostSessionItem = {
   visionCacheHitCount: number;
 };
 
-export type AdminCostSessionsResponse = {
+export type PaginatedResponse<TItem> = {
   page: number;
   pageSize: number;
   total: number;
-  items: AdminCostSessionItem[];
+  items: TItem[];
 };
+
+export type AdminCostSessionsResponse = PaginatedResponse<AdminCostSessionItem>;
 
 export type AdminCostTurnItem = {
   turnId: string;
@@ -72,12 +74,7 @@ export type SessionListItem = {
   endedAt: string | null;
 };
 
-export type SessionListResponse = {
-  page: number;
-  pageSize: number;
-  total: number;
-  items: SessionListItem[];
-};
+export type SessionListResponse = PaginatedResponse<SessionListItem>;
 
 export type SessionTurnItem = {
   turnId: string;
@@ -120,6 +117,11 @@ type SessionListFilters = {
   updatedFrom?: string;
   updatedTo?: string;
 };
+
+export type SessionListQueryParams = {
+  page?: number;
+  pageSize?: number;
+} & SessionListFilters;
 
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const controller = init?.signal ? null : new AbortController();
@@ -170,15 +172,7 @@ export async function loginOrRegister(username: string, password: string): Promi
   });
 }
 
-export async function fetchAdminCostSessions(params?: {
-  page?: number;
-  pageSize?: number;
-  query?: string;
-  inputSource?: "camera" | "screen";
-  status?: Exclude<SessionStatusFilter, "all">;
-  updatedFrom?: string;
-  updatedTo?: string;
-}): Promise<AdminCostSessionsResponse> {
+function createSessionListQueryString(params?: SessionListQueryParams): string {
   const page = params?.page ?? 1;
   const pageSize = params?.pageSize ?? 10;
   const searchParams = new URLSearchParams({
@@ -200,7 +194,11 @@ export async function fetchAdminCostSessions(params?: {
   if (params?.updatedTo) {
     searchParams.set("updatedTo", params.updatedTo);
   }
-  return fetchJson<AdminCostSessionsResponse>(`/api/admin/costs/sessions?${searchParams.toString()}`);
+  return searchParams.toString();
+}
+
+export async function fetchAdminCostSessions(params?: SessionListQueryParams): Promise<AdminCostSessionsResponse> {
+  return fetchJson<AdminCostSessionsResponse>(`/api/admin/costs/sessions?${createSessionListQueryString(params)}`);
 }
 
 export async function fetchAdminCostSessionDetail(sessionId: string): Promise<AdminCostSessionDetailResponse> {
@@ -213,31 +211,8 @@ export async function logout(): Promise<{ ok: boolean }> {
   });
 }
 
-export async function fetchSessions(
-  params?: { page?: number; pageSize?: number } & SessionListFilters,
-): Promise<SessionListResponse> {
-  const page = params?.page ?? 1;
-  const pageSize = params?.pageSize ?? 10;
-  const searchParams = new URLSearchParams({
-    page: String(page),
-    pageSize: String(pageSize),
-  });
-  if (params?.query) {
-    searchParams.set("query", params.query);
-  }
-  if (params?.inputSource) {
-    searchParams.set("inputSource", params.inputSource);
-  }
-  if (params?.status) {
-    searchParams.set("status", params.status);
-  }
-  if (params?.updatedFrom) {
-    searchParams.set("updatedFrom", params.updatedFrom);
-  }
-  if (params?.updatedTo) {
-    searchParams.set("updatedTo", params.updatedTo);
-  }
-  return fetchJson<SessionListResponse>(`/api/sessions?${searchParams.toString()}`);
+export async function fetchSessions(params?: SessionListQueryParams): Promise<SessionListResponse> {
+  return fetchJson<SessionListResponse>(`/api/sessions?${createSessionListQueryString(params)}`);
 }
 
 export async function fetchSessionDetail(sessionId: string): Promise<SessionDetailResponse> {

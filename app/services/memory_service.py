@@ -5,11 +5,11 @@ import uuid
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.adapters.embedding_adapter import embedding_adapter
-from app.adapters.langchain_ark import build_chat_model, extract_text_content
-from app.config import settings
-from app.persistence.repository import persistence_repository
-from app.state.session_store import TurnRecord, session_store
+from app.integrations.llm.embedding_adapter import embedding_adapter
+from app.integrations.llm.langchain_ark import build_chat_model, extract_text_content
+from app.core.config import settings
+from app.repositories.repository import persistence_repository
+from app.agent.session_store import TurnRecord, session_store
 
 
 class MemoryService:

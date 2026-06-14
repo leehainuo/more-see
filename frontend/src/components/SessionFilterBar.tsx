@@ -123,19 +123,20 @@ function FilterDatePicker({ valueFrom, valueTo, onChange, disabled }: FilterDate
   );
 }
 
-export function SessionFilterBar({
+type SessionFilterBarInnerProps = SessionFilterBarProps & {
+  initialValue: SessionFilters;
+};
+
+function SessionFilterBarInner({
   value,
   onApply,
   disabled = false,
   className,
   visibleFields = defaultVisibleFields,
-}: SessionFilterBarProps) {
-  const [draft, setDraft] = useState<SessionFilters>(value);
+  initialValue,
+}: SessionFilterBarInnerProps) {
+  const [draft, setDraft] = useState<SessionFilters>(initialValue);
   const visibleFieldSet = useMemo(() => new Set(visibleFields), [visibleFields]);
-
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
   const active = useMemo(() => hasActiveSessionFilters(draft), [draft]);
 
   useEffect(() => {
@@ -263,4 +264,11 @@ export function SessionFilterBar({
       </div>
     </div>
   );
+}
+
+export function SessionFilterBar(props: SessionFilterBarProps) {
+  const normalizedValue = useMemo(() => normalizeSessionFilters(props.value), [props.value]);
+  const resetKey = useMemo(() => JSON.stringify(normalizedValue), [normalizedValue]);
+
+  return <SessionFilterBarInner key={resetKey} {...props} value={normalizedValue} initialValue={normalizedValue} />;
 }

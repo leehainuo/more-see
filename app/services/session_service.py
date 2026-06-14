@@ -4,9 +4,9 @@ import uuid
 
 from fastapi import WebSocket
 
-from app.persistence.repository import persistence_repository
-from app.state.session_store import session_store
-from app.persistence.service import persistence_service
+from app.repositories.repository import persistence_repository
+from app.agent.session_store import session_store
+from app.services.persistence_service import persistence_service
 
 
 class SessionService:

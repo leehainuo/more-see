@@ -4,11 +4,11 @@ import base64
 import asyncio
 import pytest
 
-from app.adapters import asr_adapter as asr_module
+from app.integrations.speech import asr_adapter as asr_module
 import gzip
 import json
 
-from app.adapters.volcengine_asr import (
+from app.integrations.speech.volcengine_asr import (
     _SERVER_ACK,
     _SERVER_ERROR_RESPONSE,
     _SERVER_FULL_RESPONSE,
@@ -21,8 +21,8 @@ from app.adapters.volcengine_asr import (
     extract_transcript,
     resolve_audio_config,
 )
-from app.config import settings
-from app.state.session_store import AudioChunk
+from app.core.config import settings
+from app.agent.session_store import AudioChunk
 
 
 def test_resolve_audio_config_supports_pcm_and_ogg() -> None:
@@ -182,7 +182,10 @@ async def test_recv_final_payload_treats_normal_close_as_non_error(monkeypatch: 
         async def recv(self) -> bytes:
             raise FakeConnectionClosedOK()
 
-    monkeypatch.setattr("app.adapters.volcengine_asr.websockets.ConnectionClosedOK", FakeConnectionClosedOK)
+    monkeypatch.setattr(
+        "app.integrations.speech.volcengine_asr.websockets.ConnectionClosedOK",
+        FakeConnectionClosedOK,
+    )
 
     payload = await _recv_final_payload(
         FakeWebSocket(),
@@ -239,8 +242,8 @@ async def test_transcribe_chunks_replays_audio_with_last_flag_and_pacing(monkeyp
         return FakeWebSocket()
 
     monkeypatch.setattr(settings, "volcengine_speech_api_key", "test-key")
-    monkeypatch.setattr("app.adapters.volcengine_asr.websockets.connect", fake_connect)
-    monkeypatch.setattr("app.adapters.volcengine_asr.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("app.integrations.speech.volcengine_asr.websockets.connect", fake_connect)
+    monkeypatch.setattr("app.integrations.speech.volcengine_asr.asyncio.sleep", fake_sleep)
 
     transcript = await VolcengineAsrClient().transcribe_chunks(
         [

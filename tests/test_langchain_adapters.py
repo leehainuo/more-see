@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from app.adapters import llm_adapter as llm_module
-from app.adapters import vision_adapter as vision_module
-from app.adapters.langchain_ark import extract_text_content
-from app.config import settings
-from app.graphs.conversation_graph import build_conversation_messages
+from app.integrations.llm.langchain_ark import extract_text_content
+from app.integrations.llm import llm_adapter as llm_module
+from app.integrations.vision import vision_adapter as vision_module
+from app.core.config import settings
+from app.agent.conversation_graph import build_conversation_messages
 from app.services.intent_service import classify_user_intent
-from app.state.session_store import FrameSnapshot, TurnRecord
+from app.agent.session_store import FrameSnapshot, TurnRecord
 
 
 def test_extract_text_content_supports_string_and_array() -> None:
@@ -59,6 +59,22 @@ async def test_build_conversation_messages_uses_history_and_vision_summary() -> 
     assert isinstance(messages[2], AIMessage)
     assert isinstance(messages[-1], HumanMessage)
     assert "本轮视觉摘要：画面里有一只猫" in str(messages[-1].content)
+
+
+@pytest.mark.asyncio
+async def test_build_conversation_messages_injects_memory_context() -> None:
+    messages = await build_conversation_messages(
+        user_text="继续追问",
+        vision_summary=None,
+        session_summary="  用户正在比较两款耳机的降噪效果  ",
+        semantic_snippets=["  上次偏好头戴式  ", "", "预算大约 1500 元内"],
+        history_turns=[],
+    )
+
+    system_messages = [str(message.content) for message in messages if isinstance(message, SystemMessage)]
+
+    assert "会话摘要（供参考）：用户正在比较两款耳机的降噪效果" in system_messages
+    assert "与本次问题相关的历史记忆：\n- 上次偏好头戴式\n- 预算大约 1500 元内" in system_messages
 
 
 @pytest.mark.asyncio
