@@ -75,6 +75,26 @@ export function useSessionLifecycle() {
       if (bargeInProbeTimerRef.current) {
         return;
       }
+      // #region debug-point C:barge-probe-start
+      fetch("http://127.0.0.1:7777/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "self-barge-in",
+          runId: "post-fix",
+          hypothesisId: "C",
+          location: "frontend/src/hooks/useSessionLifecycle.ts:onBargeInProbe:start",
+          msg: "[DEBUG] frontend started barge-in probe loop",
+          data: {
+            activeSessionId,
+            playbackPhase: playbackPhaseRef.current,
+            assistantAudioStatus: useSessionStore.getState().assistantAudioStatus,
+            sessionStatus: useSessionStore.getState().sessionStatus,
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       suppressTtsPlaybackRef.current = true;
       stopAssistantSpeechRef.current();
 
@@ -237,12 +257,54 @@ export function useSessionLifecycle() {
         return;
       }
       if (event.type === "tts.start") {
+        // #region debug-point B:tts-start
+        fetch("http://127.0.0.1:7777/event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "self-barge-in",
+            runId: "post-fix",
+            hypothesisId: "B",
+            location: "frontend/src/hooks/useSessionLifecycle.ts:onEvent:tts-start",
+            msg: "[DEBUG] tts.start received on frontend",
+            data: {
+              sessionId: event.sessionId,
+              turnId: event.turnId,
+              playbackPhase: playbackPhaseRef.current,
+              assistantAudioStatus: useSessionStore.getState().assistantAudioStatus,
+              sessionStatus: useSessionStore.getState().sessionStatus,
+            },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         suppressTtsPlaybackRef.current = false;
         speechTokenRef.current += 1;
         playbackPhaseRef.current = "loading";
         ensurePcmPlayer().stop();
       }
       if (event.type === "tts.chunk") {
+        // #region debug-point B:tts-chunk
+        fetch("http://127.0.0.1:7777/event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "self-barge-in",
+            runId: "post-fix",
+            hypothesisId: "B",
+            location: "frontend/src/hooks/useSessionLifecycle.ts:onEvent:tts-chunk",
+            msg: "[DEBUG] first tts.chunk observed on frontend",
+            data: {
+              sessionId: event.sessionId,
+              turnId: event.turnId,
+              suppressTtsPlayback: suppressTtsPlaybackRef.current,
+              playbackPhase: playbackPhaseRef.current,
+              assistantAudioStatus: useSessionStore.getState().assistantAudioStatus,
+            },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (suppressTtsPlaybackRef.current) {
           return;
         }

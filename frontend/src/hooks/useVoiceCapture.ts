@@ -27,6 +27,9 @@ type VoiceCaptureOptions = {
 
 const SILENCE_THRESHOLD = 0.02;
 const ECHO_START_THRESHOLD_MULTIPLIER = 3.8;
+const EARLY_ASSISTANT_ECHO_START_THRESHOLD_MULTIPLIER = 8.5;
+const ASSISTANT_ECHO_GUARD_MS = 1800;
+const ASSISTANT_EARLY_TRIGGER_REQUIRED_HITS = 2;
 const AUTO_COMMIT_MS = 700;
 const TARGET_SAMPLE_RATE = 16000;
 // 8192 samples at common browser input rates lands around 170-185ms,
@@ -99,6 +102,19 @@ export function useVoiceCapture({
   const speechActiveRef = useRef(false);
   const lastSpeechAtRef = useRef<number | null>(null);
   const preRollChunksRef = useRef<Int16Array[]>([]);
+  const assistantSpeechProbeRef = useRef<{ active: boolean; loggedAtMs: number | null }>({
+    active: false,
+    loggedAtMs: null,
+  });
+  const assistantSpeechWindowRef = useRef<{
+    active: boolean;
+    startedAtMs: number | null;
+    overThresholdHits: number;
+  }>({
+    active: false,
+    startedAtMs: null,
+    overThresholdHits: 0,
+  });
   const [isCapturing, setIsCapturing] = useState(false);
   const inputLevel = useSessionStore((state) => state.inputLevel);
   const recordedChunks = useSessionStore((state) => state.recordedChunks);
@@ -323,6 +339,26 @@ export function useVoiceCapture({
         const canStartTurn = ["ready", "recording", "streaming"].includes(storeState.sessionStatus);
         const now = performance.now();
 
+        if (assistantSpeaking) {
+          if (!assistantSpeechWindowRef.current.active) {
+            assistantSpeechWindowRef.current = {
+              active: true,
+              startedAtMs: now,
+              overThresholdHits: 0,
+            };
+          }
+        } else {
+          assistantSpeechProbeRef.current = {
+            active: false,
+            loggedAtMs: null,
+          };
+          assistantSpeechWindowRef.current = {
+            active: false,
+            startedAtMs: null,
+            overThresholdHits: 0,
+          };
+        }
+
         const sendPcmChunk = (pcm: Int16Array) => {
           const durationMs = Math.round((pcm.length / TARGET_SAMPLE_RATE) * 1000);
           chunkCountRef.current += 1;
@@ -347,14 +383,88 @@ export function useVoiceCapture({
             preRollChunksRef.current = [];
           }
 
+          const assistantWarmupElapsedMs = assistantSpeaking
+            ? now - (assistantSpeechWindowRef.current.startedAtMs ?? now)
+            : 0;
+          const inAssistantEchoGuardWindow = assistantSpeaking && assistantWarmupElapsedMs < ASSISTANT_ECHO_GUARD_MS;
           const startThreshold = assistantSpeaking
-            ? SILENCE_THRESHOLD * ECHO_START_THRESHOLD_MULTIPLIER
+            ? SILENCE_THRESHOLD *
+              (inAssistantEchoGuardWindow
+                ? EARLY_ASSISTANT_ECHO_START_THRESHOLD_MULTIPLIER
+                : ECHO_START_THRESHOLD_MULTIPLIER)
             : SILENCE_THRESHOLD;
+          if (
+            assistantSpeaking &&
+            (!assistantSpeechProbeRef.current.active || assistantSpeechProbeRef.current.loggedAtMs === null)
+          ) {
+            assistantSpeechProbeRef.current = {
+              active: true,
+              loggedAtMs: now,
+            };
+            // #region debug-point A:first-speaking-chunk
+            fetch("http://127.0.0.1:7777/event", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId: "self-barge-in",
+                runId: "post-fix",
+                hypothesisId: "A",
+                location: "frontend/src/hooks/useVoiceCapture.ts:onaudioprocess:first-speaking-chunk",
+                msg: "[DEBUG] first mic chunk observed while assistantSpeaking",
+                data: {
+                  sessionId,
+                  rms,
+                  startThreshold,
+                  assistantWarmupElapsedMs,
+                  sessionStatus: storeState.sessionStatus,
+                  assistantAudioStatus: storeState.assistantAudioStatus,
+                  recordedDurationMs: recordedDurationMsRef.current,
+                  chunkCount: chunkCountRef.current,
+                },
+                ts: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
+          }
           if (rms <= startThreshold) {
+            if (assistantSpeaking) {
+              assistantSpeechWindowRef.current.overThresholdHits = 0;
+            }
             return;
           }
 
           if (assistantSpeaking && !bargeInTriggeredRef.current) {
+            assistantSpeechWindowRef.current.overThresholdHits += 1;
+            const requiredHits = inAssistantEchoGuardWindow ? ASSISTANT_EARLY_TRIGGER_REQUIRED_HITS : 1;
+            if (assistantSpeechWindowRef.current.overThresholdHits < requiredHits) {
+              return;
+            }
+            assistantSpeechWindowRef.current.overThresholdHits = 0;
+            // #region debug-point A:barge-trigger
+            fetch("http://127.0.0.1:7777/event", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId: "self-barge-in",
+                runId: "post-fix",
+                hypothesisId: "A",
+                location: "frontend/src/hooks/useVoiceCapture.ts:onaudioprocess:barge-trigger",
+                msg: "[DEBUG] mic audio crossed assistant speaking threshold",
+                data: {
+                  sessionId,
+                  rms,
+                  startThreshold,
+                  assistantWarmupElapsedMs,
+                  inAssistantEchoGuardWindow,
+                  requiredHits,
+                  echoMultiplier: ECHO_START_THRESHOLD_MULTIPLIER,
+                  sessionStatus: storeState.sessionStatus,
+                  assistantAudioStatus: storeState.assistantAudioStatus,
+                },
+                ts: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
             bargeInTriggeredRef.current = true;
             onBargeInProbe?.(sessionId);
           }
