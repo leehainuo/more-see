@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from app.adapters.tts_adapter import tts_adapter
+from app.integrations.speech.tts_adapter import tts_adapter
 
 
 class TtsService:

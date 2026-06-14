@@ -4,7 +4,7 @@ import asyncio
 import base64
 import binascii
 
-from app.adapters.volcengine_asr import VolcengineAsrStreamSession
+from app.integrations.speech.volcengine_asr import VolcengineAsrStreamSession
 from app.core.config import settings
 
 

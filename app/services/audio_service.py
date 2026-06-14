@@ -7,8 +7,8 @@ import asyncio
 
 from fastapi import WebSocket
 
-from app.adapters.asr_adapter import asr_adapter, is_fallback_transcript
-from app.state.session_store import session_store
+from app.integrations.speech.asr_adapter import asr_adapter, is_fallback_transcript
+from app.agent.session_store import session_store
 from app.services.asr_stream_service import asr_stream_service
 from app.services.conversation_service import conversation_service
 from app.services.intent_service import classify_user_intent

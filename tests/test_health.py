@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import app.routers.public as public_routes
+import app.api.routers.public as public_routes
 from app.services.provider_health_service import _probe_speech_ws
 from app.utils import volcengine_speech as speech_utils
 from app.main import app

@@ -3,8 +3,8 @@ import ssl
 
 import pytest
 
-from app.adapters.tts_adapter import tts_adapter
-from app.adapters import volcengine_tts_ws
+from app.integrations.speech import volcengine_tts_ws
+from app.integrations.speech.tts_adapter import tts_adapter
 from app.core.config import settings
 
 
@@ -189,7 +189,7 @@ async def test_tts_adapter_stream_falls_back_when_volcengine_returns_no_chunks(
             yield b""
 
     monkeypatch.setattr(
-        "app.adapters.tts_adapter.stream_synthesize_via_websocket",
+        "app.integrations.speech.tts_adapter.stream_synthesize_via_websocket",
         fake_stream_synthesize_via_websocket,
     )
 

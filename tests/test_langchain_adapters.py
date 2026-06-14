@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from app.adapters import llm_adapter as llm_module
-from app.adapters import vision_adapter as vision_module
-from app.adapters.langchain_ark import extract_text_content
+from app.integrations.llm.langchain_ark import extract_text_content
+from app.integrations.llm import llm_adapter as llm_module
+from app.integrations.vision import vision_adapter as vision_module
 from app.core.config import settings
-from app.graphs.conversation_graph import build_conversation_messages
+from app.agent.conversation_graph import build_conversation_messages
 from app.services.intent_service import classify_user_intent
-from app.state.session_store import FrameSnapshot, TurnRecord
+from app.agent.session_store import FrameSnapshot, TurnRecord
 
 
 def test_extract_text_content_supports_string_and_array() -> None:
