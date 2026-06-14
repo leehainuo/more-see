@@ -6,7 +6,7 @@ More See 是一款面向演示、面试和多模态交互场景的 **Web 端 AI 
 
 ## 视频与文档
 
-### - Demo 视频：
+### - Demo 视频：[Bilibili 演示视频](https://www.bilibili.com/video/BV1smJA6iEbJ/)
 
 ### - 设计文档：[详情入口](docs/ai-visual-dialog-design.md)
 
