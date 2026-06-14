@@ -58,16 +58,195 @@ def _resolve_vision_wait_timeout_seconds(*, requires_precise_text_extraction: bo
 
 
 class AudioService:
+    @staticmethod
+    async def _send_error(websocket: WebSocket, *, code: str, message: str) -> None:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "code": code,
+                "message": message,
+            }
+        )
+
+    @staticmethod
+    async def _send_asr_result(
+        websocket: WebSocket,
+        *,
+        session_id: str,
+        turn_id: str,
+        result: dict[str, str | int],
+    ) -> None:
+        await websocket.send_json(
+            {
+                "type": "asr.result",
+                "sessionId": session_id,
+                "turnId": turn_id,
+                "transcript": result["transcript"],
+                "provider": result["provider"],
+                "durationMs": result["durationMs"],
+                "chunkCount": result["chunkCount"],
+            }
+        )
+
+    async def _resolve_asr_result(self, session_id: str, chunks: list) -> dict[str, str | int]:
+        transcript = await asr_stream_service.finalize(session_id=session_id)
+        if transcript is None:
+            return await asr_adapter.transcribe(chunks)
+        return {
+            "transcript": transcript,
+            "provider": "volcengine",
+            "durationMs": sum(chunk.duration_ms for chunk in chunks),
+            "chunkCount": len(chunks),
+        }
+
+    async def _handle_asr_fallback(
+        self,
+        websocket: WebSocket,
+        *,
+        session_id: str,
+        turn_id: str,
+        result: dict[str, str | int],
+    ) -> bool:
+        if str(result["provider"]) == "volcengine" and not is_fallback_transcript(str(result["transcript"])):
+            return False
+
+        diagnostic_message = str(
+            result.get("diagnosticMessage")
+            or "本轮语音识别未成功，已跳过 AI 回复与语音播报。请重试录音，或直接输入文字。"
+        )
+        logger.warning(
+            "audio turn skipped after asr fallback: session_id=%s turn_id=%s diagnostic_code=%s diagnostic=%s",
+            session_id,
+            turn_id,
+            result.get("diagnosticCode", "unknown"),
+            diagnostic_message,
+        )
+        await websocket.send_json(
+            {
+                "type": "session.status",
+                "sessionId": session_id,
+                "level": "warning",
+                "message": (
+                    f"本轮语音识别未成功，已跳过 AI 回复与语音播报。"
+                    f"{diagnostic_message}"
+                ),
+            }
+        )
+        return True
+
+    @staticmethod
+    def _create_vision_task(
+        *,
+        session_id: str,
+        turn_id: str,
+        frame_id: str | None,
+        intent_route,
+    ) -> asyncio.Task[dict[str, str | bool] | None]:
+        if isinstance(frame_id, str) and frame_id:
+            return asyncio.create_task(
+                vision_service.summarize_frame(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    frame_id=frame_id,
+                    intent_route=intent_route,
+                )
+            )
+        return asyncio.create_task(
+            vision_service.summarize_latest_frame(
+                session_id,
+                turn_id,
+                intent_route=intent_route,
+            )
+        )
+
+    async def _resolve_vision_summary(
+        self,
+        websocket: WebSocket,
+        *,
+        session_id: str,
+        turn_id: str,
+        frame_id: str | None,
+        intent_route,
+    ) -> str | None:
+        vision_task = self._create_vision_task(
+            session_id=session_id,
+            turn_id=turn_id,
+            frame_id=frame_id,
+            intent_route=intent_route,
+        )
+        try:
+            # 视觉摘要与主链路并发等待，超时后直接降级，避免整轮对话被视觉模型拖慢。
+            vision_result = await asyncio.wait_for(
+                asyncio.shield(vision_task),
+                timeout=_resolve_vision_wait_timeout_seconds(
+                    requires_precise_text_extraction=intent_route.requires_precise_text_extraction
+                ),
+            )
+        except asyncio.TimeoutError:
+            vision_result = None
+
+        if vision_result is None:
+            latest_frame = vision_service.get_latest_frame(session_id)
+            if latest_frame is not None and latest_frame.summary_error:
+                logger.warning(
+                    "vision provider failed: session_id=%s turn_id=%s frame_id=%s error=%s",
+                    session_id,
+                    turn_id,
+                    latest_frame.frame_id,
+                    latest_frame.summary_error,
+                )
+                await websocket.send_json(
+                    {
+                        "type": "vision.error",
+                        "sessionId": session_id,
+                        "turnId": turn_id,
+                        "code": "vision_provider_failed",
+                        "message": (
+                            "视觉摘要生成失败，可能是额度不足、模型不可用或网络异常。"
+                            f"错误信息：{latest_frame.summary_error}"
+                        ),
+                    }
+                )
+                return None
+
+            logger.warning(
+                "vision not ready: session_id=%s turn_id=%s payload_frame_id=%s has_latest_frame=%s",
+                session_id,
+                turn_id,
+                frame_id,
+                latest_frame is not None,
+            )
+            await websocket.send_json(
+                {
+                    "type": "vision.error",
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "code": "vision_not_ready",
+                    "message": "本轮关键帧视觉摘要尚未就绪，本次先基于语音内容回答。",
+                }
+            )
+            return None
+
+        logger.info(
+            "vision summary attached to turn: session_id=%s turn_id=%s frame_id=%s provider=%s intent=%s",
+            session_id,
+            turn_id,
+            vision_result.get("frameId"),
+            vision_result.get("provider"),
+            intent_route.name,
+        )
+        await websocket.send_json(
+            {
+                "type": "vision.result",
+                **vision_result,
+            }
+        )
+        return str(vision_result["summary"])
+
     async def handle_audio_chunk(self, websocket: WebSocket, payload: dict) -> None:
         session_id = payload.get("sessionId")
         if not session_id:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "code": "missing_session_id",
-                    "message": "上传音频分段时必须提供 sessionId。",
-                }
-            )
+            await self._send_error(websocket, code="missing_session_id", message="上传音频分段时必须提供 sessionId。")
             return
 
         chunk = session_store.add_audio_chunk(
@@ -78,13 +257,7 @@ class AudioService:
             duration_ms=int(payload.get("durationMs", 0)),
         )
         if chunk is None:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "code": "session_not_found",
-                    "message": "会话不存在，请先开始会话再上传音频。",
-                }
-            )
+            await self._send_error(websocket, code="session_not_found", message="会话不存在，请先开始会话再上传音频。")
             return
         asyncio.create_task(
             asr_stream_service.push_audio_chunk(
@@ -143,9 +316,15 @@ class AudioService:
             if stable_hits >= _BARGE_IN_CONFIRM_HITS or len(normalized_partial) >= _BARGE_IN_LONG_PARTIAL_LEN:
                 verdict = "confirmed"
 
-        # #region debug-point C:partial-verdict
-        import json, urllib.request; urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:7777/event", data=json.dumps({"sessionId":"self-barge-in","runId":"post-fix","hypothesisId":"C","location":"app/services/audio_service.py:probe_barge_in:verdict","msg":"[DEBUG] backend partial probe produced verdict","data":{"sessionId":session_id,"chunkCount":len(chunks),"totalDurationMs":total_duration_ms,"transcript":transcript,"normalizedPartial":normalized_partial,"assistantTranscriptTail":_normalize_speech_text(session.assistant_transcript)[-48:],"assistantTranscriptLength":len(session.assistant_transcript),"lastPartialTranscript":session.last_partial_transcript,"stableHits":stable_hits,"verdict":verdict},"ts":__import__("time").time_ns()//1_000_000}).encode(), headers={"Content-Type":"application/json"})).read()
-        # #endregion
+        logger.debug(
+            "partial probe verdict: session_id=%s chunk_count=%s duration_ms=%s transcript=%s stable_hits=%s verdict=%s",
+            session_id,
+            len(chunks),
+            total_duration_ms,
+            transcript,
+            stable_hits,
+            verdict,
+        )
 
         session_store.update_partial_probe_state(
             session_id,
@@ -168,13 +347,7 @@ class AudioService:
     async def handle_turn_commit(self, websocket: WebSocket, payload: dict) -> None:
         session_id = payload.get("sessionId")
         if not session_id:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "code": "missing_session_id",
-                    "message": "提交语音轮次时必须提供 sessionId。",
-                }
-            )
+            await self._send_error(websocket, code="missing_session_id", message="提交语音轮次时必须提供 sessionId。")
             return
 
         turn_id = payload.get("turnId", str(uuid.uuid4()))
@@ -189,34 +362,14 @@ class AudioService:
             )
         chunks = session_store.consume_audio_chunks(session_id)
         if not chunks:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "code": "empty_audio",
-                    "message": "当前没有可识别的音频分段，请先开始说话。",
-                }
-            )
+            await self._send_error(websocket, code="empty_audio", message="当前没有可识别的音频分段，请先开始说话。")
             return
 
         try:
-            transcript = await asr_stream_service.finalize(session_id=session_id)
-            if transcript is None:
-                result = await asr_adapter.transcribe(chunks)
-            else:
-                result = {
-                    "transcript": transcript,
-                    "provider": "volcengine",
-                    "durationMs": sum(chunk.duration_ms for chunk in chunks),
-                    "chunkCount": len(chunks),
-                }
+            # 先优先消费流式 ASR 的最终结果，只有流式链路没有产出时才回落到离线识别。
+            result = await self._resolve_asr_result(session_id, chunks)
         except Exception as exc:
-            await websocket.send_json(
-                {
-                    "type": "error",
-                    "code": "asr_failed",
-                    "message": str(exc),
-                }
-            )
+            await self._send_error(websocket, code="asr_failed", message=str(exc))
             return
 
         vision_summary: str | None = None
@@ -233,145 +386,21 @@ class AudioService:
             intent_route.name,
         )
 
-        await websocket.send_json(
-            {
-                "type": "asr.result",
-                "sessionId": session_id,
-                "turnId": turn_id,
-                "transcript": result["transcript"],
-                "provider": result["provider"],
-                "durationMs": result["durationMs"],
-                "chunkCount": result["chunkCount"],
-            }
-        )
+        await self._send_asr_result(websocket, session_id=session_id, turn_id=turn_id, result=result)
 
-        if str(result["provider"]) != "volcengine" or is_fallback_transcript(str(result["transcript"])):
-            diagnostic_message = str(
-                result.get("diagnosticMessage")
-                or "本轮语音识别未成功，已跳过 AI 回复与语音播报。请重试录音，或直接输入文字。"
-            )
-            logger.warning(
-                "audio turn skipped after asr fallback: session_id=%s turn_id=%s diagnostic_code=%s diagnostic=%s",
-                session_id,
-                turn_id,
-                result.get("diagnosticCode", "unknown"),
-                diagnostic_message,
-            )
-            await websocket.send_json(
-                {
-                    "type": "session.status",
-                    "sessionId": session_id,
-                    "level": "warning",
-                    "message": (
-                        f"本轮语音识别未成功，已跳过 AI 回复与语音播报。"
-                        f"{diagnostic_message}"
-                    ),
-                }
-            )
+        if await self._handle_asr_fallback(websocket, session_id=session_id, turn_id=turn_id, result=result):
             return
 
         if include_vision:
-            vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
-            if isinstance(frame_id, str) and frame_id:
-                vision_task = asyncio.create_task(
-                    vision_service.summarize_frame(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        frame_id=frame_id,
-                        intent_route=intent_route,
-                    )
-                )
-            else:
-                vision_task = asyncio.create_task(
-                    vision_service.summarize_latest_frame(
-                        session_id,
-                        turn_id,
-                        intent_route=intent_route,
-                    )
-                )
-            vision_result: dict[str, str | bool] | None = None
-            if vision_task is not None:
-                try:
-                    remaining = _resolve_vision_wait_timeout_seconds(
-                        requires_precise_text_extraction=intent_route.requires_precise_text_extraction
-                    )
-                    vision_result = await asyncio.wait_for(
-                        asyncio.shield(vision_task),
-                        timeout=remaining,
-                    )
-                except asyncio.TimeoutError:
-                    vision_result = None
-            else:
-                if isinstance(frame_id, str) and frame_id:
-                    vision_result = await vision_service.summarize_frame(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        frame_id=frame_id,
-                        intent_route=intent_route,
-                    )
-                else:
-                    vision_result = await vision_service.summarize_latest_frame(
-                        session_id,
-                        turn_id,
-                        intent_route=intent_route,
-                    )
-            if vision_result is None:
-                latest_frame = vision_service.get_latest_frame(session_id)
-                if latest_frame is not None and latest_frame.summary_error:
-                    logger.warning(
-                        "vision provider failed: session_id=%s turn_id=%s frame_id=%s error=%s",
-                        session_id,
-                        turn_id,
-                        latest_frame.frame_id,
-                        latest_frame.summary_error,
-                    )
-                    await websocket.send_json(
-                        {
-                            "type": "vision.error",
-                            "sessionId": session_id,
-                            "turnId": turn_id,
-                            "code": "vision_provider_failed",
-                            "message": (
-                                "视觉摘要生成失败，可能是额度不足、模型不可用或网络异常。"
-                                f"错误信息：{latest_frame.summary_error}"
-                            ),
-                        }
-                    )
-                    vision_summary = None
-                else:
-                    logger.warning(
-                        "vision not ready: session_id=%s turn_id=%s payload_frame_id=%s has_latest_frame=%s",
-                        session_id,
-                        turn_id,
-                        frame_id,
-                        latest_frame is not None,
-                    )
-                    await websocket.send_json(
-                        {
-                            "type": "vision.error",
-                            "sessionId": session_id,
-                            "turnId": turn_id,
-                            "code": "vision_not_ready",
-                            "message": "本轮关键帧视觉摘要尚未就绪，本次先基于语音内容回答。",
-                        }
-                    )
-            else:
-                vision_summary = str(vision_result["summary"])
-                logger.info(
-                    "vision summary attached to turn: session_id=%s turn_id=%s frame_id=%s provider=%s intent=%s",
-                    session_id,
-                    turn_id,
-                    vision_result.get("frameId"),
-                    vision_result.get("provider"),
-                    intent_route.name,
-                )
-                await websocket.send_json(
-                    {
-                        "type": "vision.result",
-                        **vision_result,
-                    }
-                )
+            vision_summary = await self._resolve_vision_summary(
+                websocket,
+                session_id=session_id,
+                turn_id=turn_id,
+                frame_id=frame_id,
+                intent_route=intent_route,
+            )
 
+        # 对话生成与 TTS 推流统一交给 conversation_service，音频服务只负责本轮输入解析与上下文补齐。
         await conversation_service.stream_turn_reply(
             websocket=websocket,
             session_id=session_id,
