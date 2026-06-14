@@ -249,10 +249,11 @@ export default function Workspace() {
         }
         hydrateHistoryTurns(detail.turns);
         setInputSource(detail.inputSource === "screen" ? "screen" : "camera");
-        useSessionStore.setState({
+        useSessionStore.setState((state) => ({
           sessionId: resumeSessionId,
-          sessionStatus: "closed",
-        });
+          sessionStatus:
+            state.connectionStatus === "connected" && state.sessionId === resumeSessionId ? state.sessionStatus : "closed",
+        }));
       } catch {
         if (cancelled) {
           return;
@@ -290,7 +291,7 @@ export default function Workspace() {
       disconnectConnection();
       return;
     }
-    connectConnection();
+    connectConnection({ resumeSessionId: resumeSessionId ?? undefined });
   };
 
   const handleStartNewSession = () => {

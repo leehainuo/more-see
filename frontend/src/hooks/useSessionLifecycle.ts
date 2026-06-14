@@ -480,12 +480,20 @@ export function useSessionLifecycle() {
     client.disconnect();
   }, [client, stopAssistantSpeech, stopBargeInProbe, stopCapture]);
 
-  const connectConnection = useCallback(() => {
+  const connectConnection = useCallback((options?: { resumeSessionId?: string }) => {
+    const resumeSessionId = options?.resumeSessionId;
     if (connectionStatus === "connected" || connectionStatus === "connecting") {
       return;
     }
     if (sessionId) {
       resumeAfterReconnectRef.current = true;
+    } else if (resumeSessionId) {
+      pendingSessionStartRef.current = true;
+      pendingResumeSessionIdRef.current = resumeSessionId;
+    } else {
+      // 首次进入聊天页时，点击连接后自动创建会话，贴近主流 AI 聊天产品体验。
+      pendingSessionStartRef.current = true;
+      pendingResumeSessionIdRef.current = null;
     }
     client.connect();
   }, [client, connectionStatus, sessionId]);
