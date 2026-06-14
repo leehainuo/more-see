@@ -8,3 +8,4 @@ __pycache__/
 .dbg/
 .idea/
 scripts/docker/data/pg_data/
+/scripts/docker/data/
