@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { PaginatedResponse, SessionListQueryParams } from "@/lib/api";
 
@@ -85,15 +85,22 @@ export function usePaginatedSessionList<TItem extends { sessionId: string }>({
   onError,
 }: UsePaginatedSessionListOptions<TItem>) {
   const [state, dispatch] = useReducer(paginatedSessionListReducer<TItem>, createInitialState<TItem>(enabled));
+  const getErrorMessageRef = useRef(getErrorMessage);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    getErrorMessageRef.current = getErrorMessage;
+    onErrorRef.current = onError;
+  }, [getErrorMessage, onError]);
 
   const resolveErrorMessage = useCallback(
     (value: unknown, phase: LoadPhase) => {
-      if (getErrorMessage) {
-        return getErrorMessage(value, phase);
+      if (getErrorMessageRef.current) {
+        return getErrorMessageRef.current(value, phase);
       }
       return value instanceof Error ? value.message : phase === "loadMore" ? "加载更多失败" : "加载失败";
     },
-    [getErrorMessage],
+    [],
   );
 
   const loadPage = useCallback(
@@ -115,10 +122,10 @@ export function usePaginatedSessionList<TItem extends { sessionId: string }>({
       } catch (value) {
         const message = resolveErrorMessage(value, phase);
         dispatch({ type: "load:error", message });
-        onError?.(message, phase);
+        onErrorRef.current?.(message, phase);
       }
     },
-    [enabled, fetchPage, filters, onError, pageSize, resolveErrorMessage],
+    [enabled, fetchPage, filters, pageSize, resolveErrorMessage],
   );
 
   useEffect(() => {
