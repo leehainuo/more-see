@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.http import router as http_router
-from app.api.ws import router as ws_router
+from app.api.routes import router as api_router
+from app.api.ws_routes import router as ws_router
 from app.cache.redis_client import get_redis, shutdown_redis
 from app.config import settings
 from app.persistence.service import persistence_service
@@ -42,7 +42,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(http_router)
+    app.include_router(api_router)
     app.include_router(ws_router)
     return app
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.api.http_common import AuthLoginRequest, AuthRegisterRequest
-from app.api.serializers import serialize_auth_user
+from app.api.response_serializers import serialize_auth_user
+from app.api.schemas import AuthLoginRequest, AuthRegisterRequest
 from app.auth.deps import get_current_user_id
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.config import settings

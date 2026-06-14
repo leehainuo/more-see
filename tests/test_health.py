@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import app.api.http as http_api
+import app.api.public_routes as public_routes
 from app.services.provider_health_service import _probe_speech_ws
 from app.utils import volcengine_speech as speech_utils
 from app.main import app
@@ -46,7 +46,7 @@ def test_provider_healthz_probe(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         }
 
-    monkeypatch.setattr(http_api, "get_provider_health", fake_provider_health)
+    monkeypatch.setattr(public_routes, "get_provider_health", fake_provider_health)
 
     response = client.get("/healthz/providers?probe=true")
 

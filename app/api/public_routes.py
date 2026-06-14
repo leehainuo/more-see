@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from app.api.http_common import TtsSynthesizeRequest
+from app.api.schemas import TtsSynthesizeRequest
 from app.config import settings
 from app.services.provider_health_service import get_provider_health
 from app.services.tts_service import tts_service
@@ -18,11 +18,7 @@ async def healthz() -> dict[str, str]:
 
 @router.get("/healthz/providers")
 async def provider_healthz(probe: bool = Query(default=False)) -> dict[str, object]:
-    # 通过 http 模块间接解析 provider health，兼容既有测试对 app.api.http 的 monkeypatch 入口。
-    from app.api import http as http_api
-
-    provider_health = getattr(http_api, "get_provider_health", get_provider_health)
-    return await provider_health(probe=probe)
+    return await get_provider_health(probe=probe)
 
 
 @router.get("/api/config/public")
