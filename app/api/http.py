@@ -8,8 +8,14 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.auth.deps import get_current_user_id, require_super_user_id
 from app.auth.security import create_access_token, hash_password, verify_password
+from app.api.serializers import (
+    serialize_admin_cost_session_detail,
+    serialize_admin_cost_session_item,
+    serialize_auth_user,
+    serialize_session_detail,
+    serialize_session_list_response,
+)
 from app.persistence.repository import persistence_repository
-from app.services.cost_service import estimate_asr_cost_yuan, estimate_tts_cost_yuan
 from app.services.provider_health_service import get_provider_health
 from app.services.tts_service import tts_service
 
@@ -89,7 +95,7 @@ async def register(payload: AuthRegisterRequest) -> JSONResponse:
     )
     if user is None:
         raise HTTPException(status_code=500, detail="注册失败")
-    return JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
+    return JSONResponse(content=serialize_auth_user(user))
 
 
 @router.post("/api/auth/login")
@@ -105,7 +111,7 @@ async def login(payload: AuthLoginRequest) -> JSONResponse:
     elif not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = create_access_token(user_id=user.id)
-    result = JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
+    result = JSONResponse(content=serialize_auth_user(user))
     result.set_cookie(
         key=settings.auth_cookie_name,
         value=token,
@@ -129,7 +135,7 @@ async def me(user_id: int = Depends(get_current_user_id)) -> JSONResponse:
     user = await persistence_repository.get_user_by_id(user_id=user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="未登录")
-    return JSONResponse(content={"userId": user.id, "username": user.username, "isSuper": int(user.is_super)})
+    return JSONResponse(content=serialize_auth_user(user))
 
 
 @router.get("/api/admin/costs/sessions")
@@ -163,28 +169,14 @@ async def list_cost_sessions(
         updated_from=updated_from,
         updated_to=updated_to,
     )
-    items = []
-    for row in rows:
-        turns = sorted(row.turns, key=lambda item: item.created_at)
-        frames = sorted(row.frames, key=lambda item: item.created_at)
-        asr_duration_ms = sum(int(getattr(turn, "asr_duration_ms", 0) or 0) for turn in turns)
-        tts_char_count = sum(int(getattr(turn, "tts_char_count", 0) or 0) for turn in turns)
-        items.append(
-            {
-                "sessionId": row.session_id,
-                "inputSource": row.input_source,
-                "createdAt": row.created_at.isoformat(),
-                "updatedAt": row.updated_at.isoformat(),
-                "endedAt": row.ended_at.isoformat() if row.ended_at else None,
-                "asrDurationMs": asr_duration_ms,
-                "ttsCharCount": tts_char_count,
-                "asrCostYuan": estimate_asr_cost_yuan(duration_ms=asr_duration_ms),
-                "ttsCostYuan": estimate_tts_cost_yuan(char_count=tts_char_count),
-                "visionFrameCount": len(frames),
-                "visionCacheHitCount": sum(1 for frame in frames if int(getattr(frame, "cache_hit", 0) or 0) == 1),
-            }
-        )
-    return JSONResponse(content={"page": page, "pageSize": pageSize, "total": total, "items": items})
+    return JSONResponse(
+        content={
+            "page": page,
+            "pageSize": pageSize,
+            "total": total,
+            "items": [serialize_admin_cost_session_item(row) for row in rows],
+        }
+    )
 
 
 @router.get("/api/admin/costs/sessions/{session_id}")
@@ -192,47 +184,7 @@ async def get_cost_session_detail(session_id: str, _user_id: int = Depends(requi
     row = await persistence_repository.get_session_detail_admin(session_id=session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    turns = sorted(row.turns, key=lambda item: item.created_at)
-    frames = sorted(row.frames, key=lambda item: item.created_at)
-    items = []
-    session_asr_duration_ms = 0
-    session_tts_char_count = 0
-    for turn in turns:
-        asr_duration_ms = int(getattr(turn, "asr_duration_ms", 0) or 0)
-        tts_char_count = int(getattr(turn, "tts_char_count", 0) or 0)
-        session_asr_duration_ms += asr_duration_ms
-        session_tts_char_count += tts_char_count
-        items.append(
-            {
-                "turnId": turn.turn_id,
-                "createdAt": turn.created_at.isoformat(),
-                "userText": turn.user_text,
-                "assistantText": turn.assistant_text,
-                "visionSummary": turn.vision_summary,
-                "asrDurationMs": asr_duration_ms,
-                "asrProvider": getattr(turn, "asr_provider", None),
-                "ttsCharCount": tts_char_count,
-                "ttsProvider": getattr(turn, "tts_provider", None),
-                "asrCostYuan": estimate_asr_cost_yuan(duration_ms=asr_duration_ms),
-                "ttsCostYuan": estimate_tts_cost_yuan(char_count=tts_char_count),
-            }
-        )
-    return JSONResponse(
-        content={
-            "sessionId": row.session_id,
-            "inputSource": row.input_source,
-            "createdAt": row.created_at.isoformat(),
-            "updatedAt": row.updated_at.isoformat(),
-            "endedAt": row.ended_at.isoformat() if row.ended_at else None,
-            "asrDurationMs": session_asr_duration_ms,
-            "ttsCharCount": session_tts_char_count,
-            "asrCostYuan": estimate_asr_cost_yuan(duration_ms=session_asr_duration_ms),
-            "ttsCostYuan": estimate_tts_cost_yuan(char_count=session_tts_char_count),
-            "visionFrameCount": len(frames),
-            "visionCacheHitCount": sum(1 for frame in frames if int(getattr(frame, "cache_hit", 0) or 0) == 1),
-            "turns": items,
-        }
-    )
+    return JSONResponse(content=serialize_admin_cost_session_detail(row))
 
 
 @router.get("/api/sessions")
@@ -268,23 +220,7 @@ async def list_sessions(
         updated_from=updated_from,
         updated_to=updated_to,
     )
-    return JSONResponse(
-        content={
-            "page": page,
-            "pageSize": pageSize,
-            "total": total,
-            "items": [
-                {
-                    "sessionId": row.session_id,
-                    "inputSource": row.input_source,
-                    "createdAt": row.created_at.isoformat(),
-                    "updatedAt": row.updated_at.isoformat(),
-                    "endedAt": row.ended_at.isoformat() if row.ended_at else None,
-                }
-                for row in rows
-            ]
-        }
-    )
+    return JSONResponse(content=serialize_session_list_response(page=page, page_size=pageSize, total=total, rows=rows))
 
 
 @router.get("/api/sessions/{session_id}")
@@ -292,45 +228,7 @@ async def get_session_detail(session_id: str, user_id: int = Depends(get_current
     row = await persistence_repository.get_session_detail(user_id=user_id, session_id=session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    turns = sorted(row.turns, key=lambda item: item.created_at)
-    frames = sorted(row.frames, key=lambda item: item.created_at)
-    return JSONResponse(
-        content={
-            "sessionId": row.session_id,
-            "inputSource": row.input_source,
-            "createdAt": row.created_at.isoformat(),
-            "updatedAt": row.updated_at.isoformat(),
-            "endedAt": row.ended_at.isoformat() if row.ended_at else None,
-            "turns": [
-                {
-                    "turnId": item.turn_id,
-                    "userText": item.user_text,
-                    "assistantText": item.assistant_text,
-                    "visionSummary": item.vision_summary,
-                    "createdAt": item.created_at.isoformat(),
-                    "updatedAt": item.updated_at.isoformat(),
-                }
-                for item in turns
-            ],
-            "frames": [
-                {
-                    "frameId": item.frame_id,
-                    "inputSource": item.input_source,
-                    "width": item.width,
-                    "height": item.height,
-                    "capturedAt": item.captured_at,
-                    "summary": item.summary,
-                    "provider": item.provider,
-                    "cacheHit": bool(item.cache_hit),
-                    "summarizedAt": item.summarized_at,
-                    "summaryError": item.summary_error,
-                    "createdAt": item.created_at.isoformat(),
-                    "updatedAt": item.updated_at.isoformat(),
-                }
-                for item in frames
-            ],
-        }
-    )
+    return JSONResponse(content=serialize_session_detail(row))
 
 
 @router.delete("/api/sessions/{session_id}")
