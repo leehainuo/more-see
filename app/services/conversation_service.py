@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from app.adapters.llm_adapter import llm_adapter
-from app.config import settings
+from app.core.config import settings
 from app.persistence.service import persistence_service
 from app.state.session_store import session_store
 from app.services.memory_service import memory_service

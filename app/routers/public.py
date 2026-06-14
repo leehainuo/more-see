@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from app.api.schemas import TtsSynthesizeRequest
-from app.config import settings
+from app.schemas.requests import TtsSynthesizeRequest
+from app.core.config import settings
 from app.services.provider_health_service import get_provider_health
 from app.services.tts_service import tts_service
 

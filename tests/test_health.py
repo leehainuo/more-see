@@ -1,11 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import app.api.public_routes as public_routes
+import app.routers.public as public_routes
 from app.services.provider_health_service import _probe_speech_ws
 from app.utils import volcengine_speech as speech_utils
 from app.main import app
-from app.config import settings
+from app.core.config import settings
 
 client = TestClient(app)
 

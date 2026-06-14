@@ -10,9 +10,9 @@ from uuid import uuid4
 
 import websockets
 
-from app.config import settings
+from app.core.config import settings
 from app.state.session_store import AudioChunk
-from app.utils.ssl_context import build_volcengine_ssl_context
+from app.utils.ssl import build_volcengine_ssl_context
 from app.utils.volcengine_speech import build_speech_ws_headers
 
 _PROTOCOL_VERSION = 0b0001

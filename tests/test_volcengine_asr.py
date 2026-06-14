@@ -21,7 +21,7 @@ from app.adapters.volcengine_asr import (
     extract_transcript,
     resolve_audio_config,
 )
-from app.config import settings
+from app.core.config import settings
 from app.state.session_store import AudioChunk
 
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.api.response_serializers import serialize_auth_user
-from app.api.schemas import AuthLoginRequest, AuthRegisterRequest
-from app.auth.deps import get_current_user_id
-from app.auth.security import create_access_token, hash_password, verify_password
-from app.config import settings
+from app.serializers.responses import serialize_auth_user
+from app.schemas.requests import AuthLoginRequest, AuthRegisterRequest
+from app.deps.auth import get_current_user_id
+from app.core.security import create_access_token, hash_password, verify_password
+from app.core.config import settings
 from app.persistence.repository import persistence_repository
 
 router = APIRouter()

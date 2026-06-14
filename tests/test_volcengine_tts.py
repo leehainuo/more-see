@@ -5,7 +5,7 @@ import pytest
 
 from app.adapters.tts_adapter import tts_adapter
 from app.adapters import volcengine_tts_ws
-from app.config import settings
+from app.core.config import settings
 
 
 class FakeWebSocket:
@@ -29,7 +29,7 @@ class FakeWebSocket:
 
 
 def test_build_ssl_context_uses_certifi_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.utils import ssl_context as ssl_module
+    from app.utils import ssl as ssl_module
 
     monkeypatch.setattr(settings, "volcengine_ssl_cert_file", "")
     monkeypatch.setattr(ssl_module.certifi, "where", lambda: "/tmp/certifi.pem")

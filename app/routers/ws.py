@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.auth.deps import get_current_user_id_ws
+from app.deps.auth import get_current_user_id_ws
 from app.cache.session_lock_service import session_lock_service
 from app.services.audio_service import audio_service
 from app.services.asr_stream_service import asr_stream_service

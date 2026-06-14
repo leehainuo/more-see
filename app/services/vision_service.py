@@ -8,7 +8,7 @@ from collections import OrderedDict
 from fastapi import WebSocket
 
 from app.adapters.vision_adapter import vision_adapter
-from app.config import settings
+from app.core.config import settings
 from app.persistence.service import persistence_service
 from app.services.intent_service import IntentRoute, classify_user_intent
 from app.state.session_store import FrameSnapshot, session_store, utc_now_iso

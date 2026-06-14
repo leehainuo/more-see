@@ -3,9 +3,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.adapters.asr_adapter import asr_adapter
-from app.config import settings
+from app.core.config import settings
 from app.main import app
-from app.auth.security import create_access_token
+from app.core.security import create_access_token
 from app.cache.session_lock_service import session_lock_service
 from app.state.session_store import session_store
 from app.services.audio_service import audio_service

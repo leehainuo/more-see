@@ -8,8 +8,8 @@ import websockets
 from langchain_core.messages import HumanMessage
 
 from app.adapters.langchain_ark import build_chat_model, extract_text_content
-from app.config import settings
-from app.utils.ssl_context import build_volcengine_ssl_context
+from app.core.config import settings
+from app.utils.ssl import build_volcengine_ssl_context
 from app.utils.volcengine_speech import build_speech_ws_headers, explain_speech_ws_error
 
 logger = logging.getLogger(__name__)

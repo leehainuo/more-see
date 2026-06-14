@@ -5,7 +5,7 @@ import base64
 import binascii
 
 from app.adapters.volcengine_asr import VolcengineAsrStreamSession
-from app.config import settings
+from app.core.config import settings
 
 
 class AsrStreamService:

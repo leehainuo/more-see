@@ -4,10 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router as api_router
-from app.api.ws_routes import router as ws_router
+from app.routers.api import router as api_router
+from app.routers.ws import router as ws_router
 from app.cache.redis_client import get_redis, shutdown_redis
-from app.config import settings
+from app.core.config import settings
 from app.persistence.service import persistence_service
 from app.services.provider_health_service import log_provider_health_snapshot
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     try:
         await log_provider_health_snapshot()
     except Exception as exc:

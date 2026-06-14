@@ -4,7 +4,7 @@ import ssl
 
 import certifi
 
-from app.config import settings
+from app.core.config import settings
 
 
 def build_volcengine_ssl_context() -> ssl.SSLContext:

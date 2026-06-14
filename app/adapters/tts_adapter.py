@@ -6,7 +6,7 @@ import math
 import wave
 from collections.abc import AsyncIterator
 
-from app.config import settings
+from app.core.config import settings
 from app.adapters.volcengine_tts_ws import stream_synthesize_via_websocket, synthesize_via_websocket
 
 

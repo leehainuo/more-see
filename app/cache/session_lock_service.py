@@ -4,7 +4,7 @@ import asyncio
 import secrets
 
 from app.cache.redis_client import get_redis
-from app.config import settings
+from app.core.config import settings
 
 
 class SessionLockService:

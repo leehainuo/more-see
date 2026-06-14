@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from app.adapters.langchain_ark import build_chat_model, extract_text_content
-from app.config import settings
+from app.core.config import settings
 from app.graphs import build_conversation_messages
 from app.state.session_store import TurnRecord
 

@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.adapters.embedding_adapter import embedding_adapter
 from app.adapters.langchain_ark import build_chat_model, extract_text_content
-from app.config import settings
+from app.core.config import settings
 from app.persistence.repository import persistence_repository
 from app.state.session_store import TurnRecord, session_store
 

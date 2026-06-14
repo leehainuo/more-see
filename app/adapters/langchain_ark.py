@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_openai import ChatOpenAI
 
-from app.config import settings
+from app.core.config import settings
 
 
 def extract_text_content(content: object) -> str:

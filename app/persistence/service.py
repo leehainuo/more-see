@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.config import settings
+from app.core.config import settings
 from app.persistence.repository import persistence_repository
 
 logger = logging.getLogger(__name__)

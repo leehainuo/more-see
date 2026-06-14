@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from app.api.query_filters import normalize_optional_text, parse_date_boundary
-from app.api.response_serializers import serialize_session_detail, serialize_session_list_response
-from app.auth.deps import get_current_user_id
+from app.deps.filters import normalize_optional_text, parse_date_boundary
+from app.serializers.responses import serialize_session_detail, serialize_session_list_response
+from app.deps.auth import get_current_user_id
 from app.persistence.repository import persistence_repository
 
 router = APIRouter()

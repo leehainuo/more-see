@@ -6,7 +6,7 @@ import logging
 import struct
 
 from app.adapters.volcengine_asr import volcengine_asr_client
-from app.config import settings
+from app.core.config import settings
 from app.state.session_store import AudioChunk
 
 _FALLBACK_TRANSCRIPT_MARKER = "火山语音识别暂不可用"

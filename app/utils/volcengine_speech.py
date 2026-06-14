@@ -4,7 +4,7 @@ from http import HTTPStatus
 
 import websockets
 
-from app.config import settings
+from app.core.config import settings
 
 
 def build_speech_ws_headers(

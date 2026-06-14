@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import Cookie, Depends, HTTPException, WebSocket
 
-from app.config import settings
+from app.core.config import settings
 from app.persistence.repository import persistence_repository
-from app.auth.security import decode_access_token
+from app.core.security import decode_access_token
 
 
 async def get_current_user_id(token: str | None = Cookie(default=None, alias=settings.auth_cookie_name)) -> int:
