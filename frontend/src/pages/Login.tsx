@@ -50,18 +50,17 @@ export default function Login() {
   }
 
   return (
-    <AppShell eyebrow="Account" title="登录或注册" narrow>
+    <AppShell eyebrow="Account" title="登录 ｜ 注册" narrow>
       <main className="mx-auto grid w-full max-w-xl gap-6">
         <Card>
           <CardContent className="space-y-6 p-7">
             <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">Sign In</p>
-              <h2 className="text-2xl font-semibold tracking-tight text-black">登录即注册</h2>
-              <p className="text-sm leading-7 text-zinc-600">输入一个新用户名会自动创建账号，再次输入同名账号则作为登录。</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-black">登录</h2>
+              <p className="text-sm leading-7 text-zinc-600">输入一个新用户名会自动创建账号，登录即注册</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-4">
                 <label className="text-sm font-medium text-zinc-800" htmlFor="username">
                   用户名
                 </label>
@@ -69,13 +68,13 @@ export default function Login() {
                   id="username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-black/10 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-black/30"
+                  className="h-10 w-full rounded-lg border border-black/10 bg-white mt-2 px-3 text-sm text-zinc-900 outline-none focus:border-black/30"
                   autoComplete="username"
                   placeholder="你的用户名"
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <label className="text-sm font-medium text-zinc-800" htmlFor="password">
                   密码
                 </label>
@@ -84,7 +83,7 @@ export default function Login() {
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-black/10 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-black/30"
+                  className="h-10 w-full rounded-lg border border-black/10 bg-white mt-2 px-3 text-sm text-zinc-900 outline-none focus:border-black/30"
                   autoComplete="current-password"
                   placeholder="至少 4 位"
                 />
@@ -92,8 +91,8 @@ export default function Login() {
 
               {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-              <div className="flex items-center justify-end">
-                <Button type="submit" disabled={submitting}>
+              <div className="w-full">
+                <Button type="submit" disabled={submitting} className="w-full h-10">
                   {submitting ? "正在提交..." : "进入系统"}
                 </Button>
               </div>
