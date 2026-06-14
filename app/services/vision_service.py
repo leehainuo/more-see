@@ -10,6 +10,7 @@ from fastapi import WebSocket
 from app.adapters.vision_adapter import vision_adapter
 from app.config import settings
 from app.persistence.service import persistence_service
+from app.services.intent_service import IntentRoute, classify_user_intent
 from app.state.session_store import FrameSnapshot, session_store, utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -21,8 +22,22 @@ class VisionService:
         self._summary_tasks: dict[str, asyncio.Task[dict[str, str | bool]]] = {}
         self._summary_cache: OrderedDict[str, dict[str, str]] = OrderedDict()
 
-    async def _summarize_frame(self, frame: FrameSnapshot) -> dict[str, str | bool]:
-        cache_key = hashlib.sha256(frame.image_base64.encode("utf-8")).hexdigest()
+    @staticmethod
+    def _build_cache_key(frame: FrameSnapshot, intent_route: IntentRoute) -> str:
+        payload = f"{intent_route.vision_profile}:{frame.image_base64}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _build_task_key(frame_id: str, intent_route: IntentRoute) -> str:
+        return f"{frame_id}:{intent_route.vision_profile}"
+
+    async def _summarize_frame(
+        self,
+        frame: FrameSnapshot,
+        *,
+        intent_route: IntentRoute,
+    ) -> dict[str, str | bool]:
+        cache_key = self._build_cache_key(frame, intent_route)
         if settings.vision_cache_enabled:
             cached = self._summary_cache.get(cache_key)
             if cached is not None:
@@ -32,6 +47,7 @@ class VisionService:
                 frame.summary_cache_hit = True
                 frame.summary_error = None
                 frame.summarized_at = utc_now_iso()
+                frame.summary_profile = intent_route.vision_profile
                 persistence_service.record_frame_summary(
                     session_id=frame.session_id,
                     frame_id=frame.frame_id,
@@ -48,7 +64,7 @@ class VisionService:
                 }
 
         try:
-            result = await vision_adapter.summarize(frame)
+            result = await vision_adapter.summarize(frame, intent_route=intent_route)
         except Exception as exc:
             frame.summary_error = str(exc)
             frame.summarized_at = utc_now_iso()
@@ -67,6 +83,7 @@ class VisionService:
         frame.summary_cache_hit = bool(result.get("cacheHit", False))
         frame.summary_error = None
         frame.summarized_at = utc_now_iso()
+        frame.summary_profile = intent_route.vision_profile
         if settings.vision_cache_enabled and frame.summary is not None:
             self._summary_cache[cache_key] = {
                 "summary": frame.summary,
@@ -145,22 +162,47 @@ class VisionService:
             height=frame.height,
             captured_at=frame.captured_at,
         )
-        if frame.frame_id and frame.frame_id not in self._summary_tasks:
-            task = asyncio.create_task(self._summarize_frame(frame))
+        default_route = classify_user_intent("")
+        task_key = self._build_task_key(frame.frame_id, default_route)
+        if frame.frame_id and task_key not in self._summary_tasks:
+            task = asyncio.create_task(self._summarize_frame(frame, intent_route=default_route))
 
             def _cleanup(_task: asyncio.Task[dict[str, str | bool]]) -> None:
-                self._summary_tasks.pop(frame.frame_id, None)
+                self._summary_tasks.pop(task_key, None)
 
             task.add_done_callback(_cleanup)
-            self._summary_tasks[frame.frame_id] = task
+            self._summary_tasks[task_key] = task
 
-    async def summarize_latest_frame(self, session_id: str, turn_id: str) -> dict[str, str | bool] | None:
+    async def summarize_latest_frame(
+        self,
+        session_id: str,
+        turn_id: str,
+        *,
+        intent_route: IntentRoute,
+    ) -> dict[str, str | bool] | None:
         frame = session_store.get_latest_frame(session_id)
-        return await self._summarize_frame_for_turn(session_id=session_id, turn_id=turn_id, frame=frame)
+        return await self._summarize_frame_for_turn(
+            session_id=session_id,
+            turn_id=turn_id,
+            frame=frame,
+            intent_route=intent_route,
+        )
 
-    async def summarize_frame(self, *, session_id: str, turn_id: str, frame_id: str) -> dict[str, str | bool] | None:
+    async def summarize_frame(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        frame_id: str,
+        intent_route: IntentRoute,
+    ) -> dict[str, str | bool] | None:
         frame = session_store.get_frame(session_id, frame_id)
-        return await self._summarize_frame_for_turn(session_id=session_id, turn_id=turn_id, frame=frame)
+        return await self._summarize_frame_for_turn(
+            session_id=session_id,
+            turn_id=turn_id,
+            frame=frame,
+            intent_route=intent_route,
+        )
 
     async def _summarize_frame_for_turn(
         self,
@@ -168,16 +210,20 @@ class VisionService:
         session_id: str,
         turn_id: str,
         frame: FrameSnapshot | None,
+        intent_route: IntentRoute,
     ) -> dict[str, str | bool] | None:
         if frame is None:
             return None
 
         try:
-            task = self._summary_tasks.get(frame.frame_id)
+            task_key = self._build_task_key(frame.frame_id, intent_route)
+            task = self._summary_tasks.get(task_key)
             if task is not None and not task.done():
                 await task
-            elif frame.summary is None and frame.summary_error is None:
-                await self._summarize_frame(frame)
+            elif frame.summary_profile != intent_route.vision_profile or (
+                frame.summary is None and frame.summary_error is None
+            ):
+                await self._summarize_frame(frame, intent_route=intent_route)
         except Exception as exc:
             logger.warning(
                 "vision summarize failed: session_id=%s turn_id=%s frame_id=%s error=%s",

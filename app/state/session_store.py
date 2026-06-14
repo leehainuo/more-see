@@ -32,6 +32,7 @@ class FrameSnapshot:
     summarized_at: str | None = None
     summary_cache_hit: bool | None = None
     summary_error: str | None = None
+    summary_profile: str | None = None
 
 
 @dataclass

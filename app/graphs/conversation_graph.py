@@ -5,6 +5,7 @@ from typing import TypedDict
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
+from app.services.intent_service import classify_user_intent
 from app.state.session_store import TurnRecord
 from app.adapters.asr_adapter import is_fallback_transcript
 
@@ -17,6 +18,12 @@ class ConversationGraphState(TypedDict):
     session_summary: str | None
     semantic_snippets: list[str]
     messages: list[BaseMessage]
+
+def _build_intent_system_message(user_text: str) -> SystemMessage | None:
+    route = classify_user_intent(user_text)
+    if route.system_instruction is None:
+        return None
+    return SystemMessage(content=route.system_instruction)
 
 
 def _build_messages(state: ConversationGraphState) -> dict[str, list[BaseMessage]]:
@@ -33,6 +40,9 @@ def _build_messages(state: ConversationGraphState) -> dict[str, list[BaseMessage
             )
         )
     ]
+    intent_system_message = _build_intent_system_message(state["user_text"])
+    if intent_system_message is not None:
+        messages.append(intent_system_message)
 
     session_summary = (state.get("session_summary") or "").strip()
     if session_summary:

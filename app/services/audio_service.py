@@ -11,6 +11,7 @@ from app.adapters.asr_adapter import asr_adapter, is_fallback_transcript
 from app.state.session_store import session_store
 from app.services.asr_stream_service import asr_stream_service
 from app.services.conversation_service import conversation_service
+from app.services.intent_service import classify_user_intent
 from app.services.vision_service import vision_service
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,8 @@ _PARTIAL_MIN_DURATION_MS = 420
 _PARTIAL_MIN_CHUNKS = 3
 _BARGE_IN_CONFIRM_HITS = 3
 _BARGE_IN_LONG_PARTIAL_LEN = 8
-_VISION_TOTAL_BUDGET_SECONDS = 12.0
+_VISION_WAIT_TIMEOUT_SECONDS = 15.0
+_VISION_WAIT_TIMEOUT_PRECISE_TEXT_SECONDS = 18.0
 _NORMALIZE_TEXT_RE = re.compile(r"""[\s，。！？；：、“”"'`~!@#$%^&*()_+\-=\[\]{};:\\|,.<>/?《》【】（）]""")
 
 
@@ -45,6 +47,14 @@ def _is_stable_partial_transcript(current_transcript: str, previous_transcript: 
     if len(current) < 2 or len(previous) < 2:
         return False
     return current in previous or previous in current
+
+
+def _resolve_vision_wait_timeout_seconds(*, requires_precise_text_extraction: bool) -> float:
+    return (
+        _VISION_WAIT_TIMEOUT_PRECISE_TEXT_SECONDS
+        if requires_precise_text_extraction
+        else _VISION_WAIT_TIMEOUT_SECONDS
+    )
 
 
 class AudioService:
@@ -133,6 +143,10 @@ class AudioService:
             if stable_hits >= _BARGE_IN_CONFIRM_HITS or len(normalized_partial) >= _BARGE_IN_LONG_PARTIAL_LEN:
                 verdict = "confirmed"
 
+        # #region debug-point C:partial-verdict
+        import json, urllib.request; urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:7777/event", data=json.dumps({"sessionId":"self-barge-in","runId":"post-fix","hypothesisId":"C","location":"app/services/audio_service.py:probe_barge_in:verdict","msg":"[DEBUG] backend partial probe produced verdict","data":{"sessionId":session_id,"chunkCount":len(chunks),"totalDurationMs":total_duration_ms,"transcript":transcript,"normalizedPartial":normalized_partial,"assistantTranscriptTail":_normalize_speech_text(session.assistant_transcript)[-48:],"assistantTranscriptLength":len(session.assistant_transcript),"lastPartialTranscript":session.last_partial_transcript,"stableHits":stable_hits,"verdict":verdict},"ts":__import__("time").time_ns()//1_000_000}).encode(), headers={"Content-Type":"application/json"})).read()
+        # #endregion
+
         session_store.update_partial_probe_state(
             session_id,
             chunk_count=len(chunks),
@@ -152,7 +166,6 @@ class AudioService:
         }
 
     async def handle_turn_commit(self, websocket: WebSocket, payload: dict) -> None:
-        commit_started_at = asyncio.get_running_loop().time()
         session_id = payload.get("sessionId")
         if not session_id:
             await websocket.send_json(
@@ -174,15 +187,6 @@ class AudioService:
                 turn_id,
                 frame_id,
             )
-        vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
-        if include_vision:
-            if isinstance(frame_id, str) and frame_id:
-                vision_task = asyncio.create_task(
-                    vision_service.summarize_frame(session_id=session_id, turn_id=turn_id, frame_id=frame_id)
-                )
-            else:
-                vision_task = asyncio.create_task(vision_service.summarize_latest_frame(session_id, turn_id))
-
         chunks = session_store.consume_audio_chunks(session_id)
         if not chunks:
             await websocket.send_json(
@@ -216,15 +220,17 @@ class AudioService:
             return
 
         vision_summary: str | None = None
+        intent_route = classify_user_intent(str(result["transcript"]))
 
         logger.info(
-            "audio turn commit: session_id=%s turn_id=%s chunk_count=%s duration_ms=%s provider=%s include_vision=%s",
+            "audio turn commit: session_id=%s turn_id=%s chunk_count=%s duration_ms=%s provider=%s include_vision=%s intent=%s",
             session_id,
             turn_id,
             result["chunkCount"],
             result["durationMs"],
             result["provider"],
             include_vision,
+            intent_route.name,
         )
 
         await websocket.send_json(
@@ -265,10 +271,30 @@ class AudioService:
             return
 
         if include_vision:
+            vision_task: asyncio.Task[dict[str, str | bool] | None] | None = None
+            if isinstance(frame_id, str) and frame_id:
+                vision_task = asyncio.create_task(
+                    vision_service.summarize_frame(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        frame_id=frame_id,
+                        intent_route=intent_route,
+                    )
+                )
+            else:
+                vision_task = asyncio.create_task(
+                    vision_service.summarize_latest_frame(
+                        session_id,
+                        turn_id,
+                        intent_route=intent_route,
+                    )
+                )
             vision_result: dict[str, str | bool] | None = None
             if vision_task is not None:
                 try:
-                    remaining = max(0.0, _VISION_TOTAL_BUDGET_SECONDS - (asyncio.get_running_loop().time() - commit_started_at))
+                    remaining = _resolve_vision_wait_timeout_seconds(
+                        requires_precise_text_extraction=intent_route.requires_precise_text_extraction
+                    )
                     vision_result = await asyncio.wait_for(
                         asyncio.shield(vision_task),
                         timeout=remaining,
@@ -281,9 +307,14 @@ class AudioService:
                         session_id=session_id,
                         turn_id=turn_id,
                         frame_id=frame_id,
+                        intent_route=intent_route,
                     )
                 else:
-                    vision_result = await vision_service.summarize_latest_frame(session_id, turn_id)
+                    vision_result = await vision_service.summarize_latest_frame(
+                        session_id,
+                        turn_id,
+                        intent_route=intent_route,
+                    )
             if vision_result is None:
                 latest_frame = vision_service.get_latest_frame(session_id)
                 if latest_frame is not None and latest_frame.summary_error:
@@ -327,11 +358,12 @@ class AudioService:
             else:
                 vision_summary = str(vision_result["summary"])
                 logger.info(
-                    "vision summary attached to turn: session_id=%s turn_id=%s frame_id=%s provider=%s",
+                    "vision summary attached to turn: session_id=%s turn_id=%s frame_id=%s provider=%s intent=%s",
                     session_id,
                     turn_id,
                     vision_result.get("frameId"),
                     vision_result.get("provider"),
+                    intent_route.name,
                 )
                 await websocket.send_json(
                     {
@@ -339,8 +371,6 @@ class AudioService:
                         **vision_result,
                     }
                 )
-        elif vision_task is not None:
-            vision_task.cancel()
 
         await conversation_service.stream_turn_reply(
             websocket=websocket,
