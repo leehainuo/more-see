@@ -24,7 +24,7 @@ export function useSessionLifecycle() {
   const playbackPhaseRef = useRef<"idle" | "loading" | "playing">("idle");
   const autoStartingCaptureRef = useRef(false);
   const suppressTtsPlaybackRef = useRef(false);
-  const startSessionRef = useRef<(resumeSessionId?: string) => void>(() => undefined);
+  const startSessionRef = useRef<(options?: { resumeSessionId?: string; announce?: boolean }) => void>(() => undefined);
   const tryStartHandsFreeCaptureRef = useRef<() => void>(() => undefined);
   const stopAssistantSpeechRef = useRef<() => void>(() => undefined);
   const bargeInProbeTimerRef = useRef<number | null>(null);
@@ -253,7 +253,7 @@ export function useSessionLifecycle() {
       if (event.type === "session.closed" && pendingStartNewSessionRef.current) {
         pendingStartNewSessionRef.current = false;
         useSessionStore.getState().resetMessages();
-        void startSession({ announce: true });
+        startSessionRef.current({ announce: true });
         return;
       }
       if (event.type === "tts.start") {
@@ -388,7 +388,7 @@ export function useSessionLifecycle() {
     pendingSessionStartRef.current = false;
     const resumeSessionId = pendingResumeSessionIdRef.current ?? undefined;
     pendingResumeSessionIdRef.current = null;
-    startSessionRef.current(resumeSessionId);
+    startSessionRef.current({ resumeSessionId, announce: true });
   }, [connectionStatus, sessionId]);
 
   useEffect(() => {
@@ -396,7 +396,7 @@ export function useSessionLifecycle() {
       return;
     }
     resumeAfterReconnectRef.current = false;
-    void startSession({ resumeSessionId: sessionId, announce: false });
+    startSessionRef.current({ resumeSessionId: sessionId, announce: false });
   }, [connectionStatus, sessionId]);
 
   useEffect(() => {
@@ -414,8 +414,7 @@ export function useSessionLifecycle() {
     stopPreview();
   }, [inputSource, startPreview, stopPreview, visionEnabled]);
 
-  const startSession = useCallback(
-    async (options?: { resumeSessionId?: string; announce?: boolean }) => {
+  const startSession = async (options?: { resumeSessionId?: string; announce?: boolean }) => {
     const resumeSessionId = options?.resumeSessionId;
     const announce = options?.announce ?? true;
     if (visionEnabled) {
@@ -437,15 +436,13 @@ export function useSessionLifecycle() {
         cameraLabel: inputSource === "screen" ? "Screen share" : "Default camera",
       },
     });
-    },
-    [appendUserMessage, client, inputSource, startPreview, visionEnabled],
-  );
+  };
 
   useEffect(() => {
-    startSessionRef.current = (resumeSessionId?: string) => {
-      void startSession({ resumeSessionId, announce: true });
+    startSessionRef.current = (options) => {
+      void startSession(options);
     };
-  }, [startSession]);
+  });
 
   const closeSession = useCallback(() => {
     if (!sessionId) {
@@ -498,11 +495,6 @@ export function useSessionLifecycle() {
     client.connect();
   }, [client, connectionStatus, sessionId]);
 
-  const reconnect = useCallback(() => {
-    client.disconnect();
-    client.connect();
-  }, [client]);
-
   const requestSessionStart = useCallback(
     (resumeSessionId?: string) => {
     pendingSessionStartRef.current = true;
@@ -512,14 +504,14 @@ export function useSessionLifecycle() {
       pendingSessionStartRef.current = false;
       const nextResumeSessionId = pendingResumeSessionIdRef.current ?? undefined;
       pendingResumeSessionIdRef.current = null;
-      void startSession({ resumeSessionId: nextResumeSessionId, announce: true });
+      startSessionRef.current({ resumeSessionId: nextResumeSessionId, announce: true });
       return;
     }
     useSessionStore.setState({
       systemMessage: "WebSocket 未连接，请先点击连接。",
     });
     },
-    [connectionStatus, startSession],
+    [connectionStatus],
   );
 
   const startNewSession = useCallback(() => {
@@ -556,7 +548,7 @@ export function useSessionLifecycle() {
     visionEnabled,
     setInputSource,
     requestSessionStart,
-    startSession: (resumeSessionId?: string) => void startSession({ resumeSessionId, announce: true }),
+    startSession: (resumeSessionId?: string) => startSessionRef.current({ resumeSessionId, announce: true }),
     closeSession,
     connectConnection,
     disconnectConnection,
