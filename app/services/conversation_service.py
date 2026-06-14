@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.agent.context import TurnReplyContext, build_turn_reply_context
 from app.integrations.llm.llm_adapter import llm_adapter
 from app.core.config import settings
 from app.services.persistence_service import persistence_service
@@ -17,13 +18,6 @@ from app.services.tts_service import tts_service
 _SENTENCE_END_RE = re.compile(r"(?<=[，,。！？!?；;：:\n])")
 _TTS_SOFT_CHUNK_SIZE = 24
 _TTS_HARD_CHUNK_SIZE = 36
-
-
-@dataclass(slots=True)
-class TurnReplyContext:
-    history_turns: list[dict[str, Any]]
-    session_summary: str | None
-    semantic_snippets: list[str]
 
 
 @dataclass(slots=True)
@@ -44,7 +38,7 @@ class ConversationService:
         asr_duration_ms: int = 0,
         asr_provider: str | None = None,
     ) -> None:
-        reply_context = await self._prepare_turn_context(
+        reply_context = await build_turn_reply_context(
             session_id=session_id,
             turn_id=turn_id,
             transcript=transcript,
@@ -85,55 +79,6 @@ class ConversationService:
         except asyncio.CancelledError:
             tts_pipeline.task.cancel()
             raise
-
-    async def _prepare_turn_context(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        transcript: str,
-        vision_summary: str | None,
-    ) -> TurnReplyContext:
-        history_turns = session_store.get_recent_turns(session_id, limit=3)
-        session_store.save_turn(
-            session_id=session_id,
-            turn_id=turn_id,
-            user_text=transcript,
-            vision_summary=vision_summary,
-        )
-        session_store.set_assistant_transcript(session_id, "")
-        session_store.set_assistant_speaking(session_id, False)
-
-        session_summary: str | None = None
-        semantic_snippets: list[str] = []
-        session = session_store.get_session(session_id)
-        if session is not None:
-            session_summary = session.session_summary
-            semantic_snippets = await self._load_semantic_snippets(
-                session_user_id=session.user_id,
-                transcript=transcript,
-            )
-
-        return TurnReplyContext(
-            history_turns=history_turns,
-            session_summary=session_summary,
-            semantic_snippets=semantic_snippets,
-        )
-
-    async def _load_semantic_snippets(self, *, session_user_id: int | None, transcript: str) -> list[str]:
-        if not settings.memory_semantic_enabled or session_user_id is None:
-            return []
-
-        try:
-            return await asyncio.wait_for(
-                memory_service.retrieve_semantic_snippets(
-                    user_id=int(session_user_id),
-                    query=transcript,
-                ),
-                timeout=1.6,
-            )
-        except Exception:
-            return []
 
     def _start_tts_pipeline(
         self,
