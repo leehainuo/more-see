@@ -408,8 +408,8 @@ export default function Workspace() {
 
   return (
     <AppShell
-      eyebrow="Realtime Call"
-      title="视频语音聊天"
+      eyebrow="Chat"
+      title="聊天"
       floatingPanel={floatingVideoPanel}
       floatingPanelClassName="top-[132px] right-4 sm:right-5 lg:right-6"
       narrow
