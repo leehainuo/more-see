@@ -2,14 +2,30 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { AppShell } from "@/components/AppShell";
+import { SessionFilterBar } from "@/components/SessionFilterBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { SessionDetailResponse, SessionListItem } from "@/lib/api";
 import { fetchSessionDetail, fetchSessions } from "@/lib/api";
+import {
+  createSessionSearchParams,
+  parseSessionFilters,
+  toSessionFilterApiParams,
+  type SessionFilters,
+} from "@/lib/session-filters";
 
 export default function History() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedSessionId = searchParams.get("sessionId");
+  const activeFilters = useMemo(() => {
+    const parsedFilters = parseSessionFilters(searchParams);
+    return {
+      ...parsedFilters,
+      updatedFrom: "",
+      updatedTo: "",
+    };
+  }, [searchParams]);
+  const filterApiParams = useMemo(() => toSessionFilterApiParams(activeFilters), [activeFilters]);
   const [items, setItems] = useState<SessionListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -26,7 +42,7 @@ export default function History() {
     setError(null);
     void (async () => {
       try {
-        const result = await fetchSessions({ page: 1, pageSize });
+        const result = await fetchSessions({ page: 1, pageSize, ...filterApiParams });
         if (cancelled) {
           return;
         }
@@ -47,7 +63,7 @@ export default function History() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [filterApiParams]);
 
   const canLoadMore = items.length < total;
 
@@ -59,7 +75,7 @@ export default function History() {
     setError(null);
     try {
       const nextPage = page + 1;
-      const result = await fetchSessions({ page: nextPage, pageSize });
+      const result = await fetchSessions({ page: nextPage, pageSize, ...filterApiParams });
       setPage(result.page);
       setTotal(result.total);
       setItems((prev) => [...prev, ...result.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId))]);
@@ -68,6 +84,10 @@ export default function History() {
     } finally {
       setLoadingMore(false);
     }
+  }
+
+  function handleApplyFilters(nextFilters: SessionFilters) {
+    setSearchParams(createSessionSearchParams(nextFilters));
   }
 
   useEffect(() => {
@@ -110,7 +130,7 @@ export default function History() {
   }, [selectedDetail]);
 
   return (
-    <AppShell eyebrow="Conversation Memory" title="会话记录" narrow>
+    <AppShell eyebrow="Conversation" title="会话" narrow>
       <main className="grid gap-6">
         <Card>
           <CardContent className="space-y-6 p-7">
@@ -123,6 +143,13 @@ export default function History() {
             </div>
 
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+            <SessionFilterBar
+              value={activeFilters}
+              onApply={handleApplyFilters}
+              disabled={loading}
+              visibleFields={["query", "inputSource", "status"]}
+            />
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <div className="space-y-3">
@@ -138,7 +165,7 @@ export default function History() {
                         <button
                           key={item.sessionId}
                           type="button"
-                          onClick={() => setSearchParams({ sessionId: item.sessionId })}
+                          onClick={() => setSearchParams(createSessionSearchParams(activeFilters, item.sessionId))}
                           className={`rounded-[20px] border px-4 py-4 text-left transition-colors ${
                             item.sessionId === selectedSessionId
                               ? "border-black/20 bg-black/[0.03]"

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
+import { SessionFilterBar } from "@/components/SessionFilterBar";
 import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,11 +12,32 @@ import {
   type AdminCostSessionDetailResponse,
   type AdminCostSessionItem,
 } from "@/lib/api";
+import { createSessionSearchParams, parseSessionFilters, toSessionFilterApiParams, type SessionFilters } from "@/lib/session-filters";
 import { useAuthStore } from "@/store/useAuthStore";
+
+function formatSessionTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("zh-CN", {
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 export default function Costs() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isSuper = useAuthStore((state) => state.isSuper);
+  const activeFilters = useMemo(() => parseSessionFilters(searchParams), [searchParams]);
+  const filterApiParams = useMemo(() => toSessionFilterApiParams(activeFilters), [activeFilters]);
   const [items, setItems] = useState<AdminCostSessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -40,11 +62,14 @@ export default function Costs() {
     setLoading(true);
     void (async () => {
       try {
-        const response = await fetchAdminCostSessions({ page: 1, pageSize });
+        const response = await fetchAdminCostSessions({ page: 1, pageSize, ...filterApiParams });
         if (!cancelled) {
           setPage(response.page);
           setTotal(response.total);
           setItems(response.items);
+          setExpandedSessionId((current) =>
+            response.items.some((item) => item.sessionId === current) ? current : null,
+          );
         }
       } catch {
         if (!cancelled) {
@@ -59,7 +84,7 @@ export default function Costs() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper]);
+  }, [filterApiParams, isSuper]);
 
   const canLoadMore = items.length < total;
 
@@ -70,7 +95,7 @@ export default function Costs() {
     setLoadingMore(true);
     try {
       const nextPage = page + 1;
-      const response = await fetchAdminCostSessions({ page: nextPage, pageSize });
+      const response = await fetchAdminCostSessions({ page: nextPage, pageSize, ...filterApiParams });
       setPage(response.page);
       setTotal(response.total);
       setItems((prev) => [
@@ -84,6 +109,10 @@ export default function Costs() {
     }
   }
 
+  function handleApplyFilters(nextFilters: SessionFilters) {
+    setSearchParams(createSessionSearchParams(nextFilters));
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <TopNav />
@@ -95,6 +124,14 @@ export default function Costs() {
 
         <Card>
           <CardContent className="p-6">
+            <SessionFilterBar
+              value={activeFilters}
+              onApply={handleApplyFilters}
+              disabled={loading}
+              className="mb-6"
+              visibleFields={["query", "inputSource", "status", "updatedRange"]}
+            />
+
             {loading ? (
               <div className="text-sm text-zinc-600">加载中…</div>
             ) : items.length === 0 ? (
@@ -132,7 +169,7 @@ export default function Costs() {
                           Session {item.sessionId.slice(0, 8)} · {item.inputSource}
                         </div>
                         <div className="mt-1 text-xs text-zinc-500">
-                          {item.createdAt} → {item.endedAt ?? item.updatedAt}
+                          {formatSessionTime(item.createdAt)} → {formatSessionTime(item.endedAt ?? item.updatedAt)}
                         </div>
                       </div>
                       <div className="text-right text-sm font-semibold text-black">
