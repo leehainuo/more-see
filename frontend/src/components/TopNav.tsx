@@ -67,11 +67,11 @@ export function TopNav() {
 
         <div className="flex items-center gap-2">
           {status === "authenticated" ? (
-            <Button variant="ghost" size="sm" onClick={() => void handleLogout()}>
+            <Button variant="ghost" size="lg" onClick={() => void handleLogout()}>
               退出
             </Button>
           ) : status === "anonymous" ? (
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline" size="lg">
               <Link to="/login">登录</Link>
             </Button>
           ) : null}
