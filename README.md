@@ -1,28 +1,126 @@
 # More See
 
-一个面向演示与面试场景的纯 Web 多模态 AI 视觉对话助手骨架项目。
+More See 是一款面向演示、面试和多模态交互场景的 **Web 端 AI 视觉对话助手**。它可以在浏览器中打开 **摄像头 / 屏幕共享 + 麦克风**，把用户语音与当前画面一起送入 AI 理解链路，并返回 **流式文本 + 流式语音** 回复，帮助用户完成“看见现实世界或数字世界，并能自然对话”的完整体验。
 
-## 当前阶段
-- 已完成 `uv + FastAPI + React + shadcn/ui` 工程初始化
-- 已完成 WebSocket 会话生命周期
-- 已接入麦克风采集、音频分段上报与火山 ASR 识别回传
-- 已接入摄像头预览、关键帧抓取与火山视觉摘要回传
-- 已接入多模态会话编排与火山 LLM 流式回复
-- 已提供黑白极简风格的 React 工作台、会话记录页和设置页骨架
+## 视频与文档
+
+### - Demo 视频：
+
+### - 设计文档：[详情入口](docs/ai-visual-dialog-design.md)
+
+### - 技术架构文档：[详情入口](.trae/documents/technical-architecture-ai-visual-dialog-assistant.md)
+
+## 题目对应
+
+题目一：AI 视觉对话助手
+
+原题如下：
+
+> 请开发一款与 AI 对话的应用。要求：打开摄像头与麦克风，让 AI 能够看到摄像头中的视频内容、听到用户说的话，并给予恰当的回应。需综合考虑视觉内容的理解准确性、语音交互的自然度与流畅性，以及端云协同的成本控制策略等。实现应用的同时，请额外提交一份设计文档，内容包含：1）你计划实现哪些用户故事，最终实现了哪些 2）你想到了哪些控制运营成本的技巧，实际采用了哪些。
+
+本项目对应实现如下：
+
+- **基础要求对应**：支持在浏览器中打开麦克风、摄像头与屏幕共享，让 AI 同时获取语音和视觉输入
+- **交互体验对应**：支持流式 ASR、流式 LLM 回复、流式 TTS 播报以及用户打断继续说话
+- **视觉理解对应**：支持关键帧抓取、视觉摘要、多轮上下文拼装与当前画面问答
+- **成本控制对应**：已实现音频静音裁剪、关键帧相似复用、视觉摘要缓存、视觉超时降级
+- **文档交付对应**：已提供独立设计文档，明确“计划实现/最终实现的用户故事”和“成本控制技巧：想到的 vs 实际采用的”
+
+## 项目定位
+
+- 面向需要展示多模态能力的 Web 产品、面试作品和 demo 项目
+- 不是纯聊天机器人，而是“语音 + 视觉 + 流式反馈”的完整交互闭环
+- 强调端云协同成本控制，而不是把连续视频和全量音频无脑上云
+- 在保证体验自然的前提下，尽可能压低 ASR、视觉理解与上下文成本
+
+## 核心亮点
+
+- **完整多模态主链路**
+  从浏览器采集音频与关键帧，经 WebSocket 送入后端，再接火山 ASR、视觉模型、LLM 与 TTS，形成可直接演示的端到端闭环。
+- **屏幕共享 + 摄像头双视觉**
+  不仅能看现实物体，也能看屏幕内容；开启屏幕共享时保留摄像头小窗，表达“人 + 屏幕”双视觉状态。
+- **流式文本 + 流式语音**
+  AI 回复不是整段等待后一次性返回，而是边生成边显示、边播报，更接近真实实时助手。
+- **端云协同成本控制**
+  端侧做音频静音裁剪与关键帧相似复用，服务端做视觉摘要缓存与超时降级，把“低成本”真正落到工程实现。
+- **打断与继续对话**
+  AI 播报期间，用户可直接开口打断，让对话更自然，也更适合现场演示。
+- **成本可解释**
+  提供独立成本面板，按 session 展示 ASR、TTS、视觉调用与预估费用，便于评审理解优化策略不是口头描述。
+
+## 核心能力
+
+### 1. 语音输入
+
+- 支持浏览器麦克风采集
+- 支持 16k PCM 下采样与 WebSocket 音频分片上送
+- 支持静音自动提交当前轮次
+- 支持 AI 播报期间的 barge-in 打断探测
+
+### 2. 视觉输入
+
+- 支持摄像头预览
+- 支持屏幕共享输入
+- 支持关键帧抓取与上传
+- 支持相似关键帧复用，避免重复视觉调用
+
+### 3. AI 理解与回复
+
+- 支持火山流式 ASR 识别
+- 支持火山视觉模型生成关键帧摘要
+- 支持 LLM 多模态上下文编排与流式回复
+- 支持火山流式 TTS 播报
+
+### 4. 会话与展示
+
+- 支持会话开始、断开、恢复
+- 支持工作台流式消息展示
+- 支持历史会话与成本面板
+- 支持 provider health 自检与降级提示
+
+## 成本控制策略
+
+项目已实际采用以下策略：
+
+- **音频静音裁剪**
+  端侧只在有效语音与短尾静音窗口内继续发送 chunk，减少无效静音带来的 ASR 成本。
+- **关键帧相似复用**
+  对关键帧计算差分指纹，相似画面不重复上传，直接复用上一轮视觉摘要。
+- **服务端视觉摘要缓存**
+  对重复图像内容直接命中缓存，减少视觉模型重复推理。
+- **ASR 与视觉并行 + 视觉超时降级**
+  保证主链路低延迟，避免视觉模型拖慢整轮体验。
+- **最小上下文窗口**
+  仅保留最近必要轮次，避免无上限增长的上下文成本。
+
+详细说明见 [docs/ai-visual-dialog-design.md](docs/ai-visual-dialog-design.md)。
 
 ## 技术栈
-- 后端：`FastAPI`、`WebSocket`
-- 前端：`React`、`TypeScript`、`Tailwind CSS`、`shadcn/ui`
+
+- 后端：`FastAPI`、`WebSocket`、`LangChain`、`LangGraph`
+- 前端：`React`、`TypeScript`、`Vite`、`Tailwind CSS`、`shadcn/ui`
+- 语音与多模态能力：`Volcengine ASR / Vision / LLM / TTS`
 - Python 管理：`uv`
 
-## 快速启动
-1. 安装后端依赖
+## 项目结构
+
+```text
+more-see/
+├── app/                      # FastAPI 应用、会话编排、模型适配
+├── docs/                     # 对外提交文档、设计文档、Demo 台词稿
+├── frontend/                 # React + Vite 工作台前端
+└── tests/                    # 后端测试
+```
+
+## 快速开始
+
+### 1. 安装后端依赖
 
 ```bash
 uv sync
 ```
 
-2. 安装前端依赖
+### 2. 安装前端依赖
 
 ```bash
 cd frontend
@@ -30,75 +128,59 @@ npm install
 cd ..
 ```
 
-3. 启动后端服务
+### 3. 启动后端
 
 ```bash
 uv run uvicorn app.main:app --reload
 ```
 
-4. 启动前端服务
+### 4. 启动前端
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-5. 打开浏览器访问 [http://127.0.0.1:5173](http://127.0.0.1:5173)
+### 5. 打开页面
+
+- 前端地址：<http://127.0.0.1:5173>
 
 ## 常用命令
+
 ```bash
 uv run pytest
 uv run ruff check .
-cd frontend && npm run check
+cd frontend && npm run typecheck
+cd frontend && npm run lint
 ```
 
 ## 自检接口
-- `GET /healthz`：基础存活检查
-- `GET /healthz/providers`：返回火山能力的配置级自检结果，不触发真实模型请求
-- `GET /healthz/providers?probe=true`：执行一次真实连通性探测，帮助确认 `ASR / TTS / LLM / Vision` 是配置问题、模型未开通还是网络 / 证书问题
 
-## 目录说明
-- `app/`：FastAPI 应用与后续多模态服务编排层
-- `frontend/`：React + shadcn/ui 前端工作台
-- `tests/`：基础测试
-- `.trae/documents/`：PRD、技术架构与执行计划
+- `GET /healthz`：基础存活检查
+- `GET /healthz/providers`：配置级能力自检，不触发真实模型请求
+- `GET /healthz/providers?probe=true`：真实连通性探测，用于排查 `ASR / TTS / LLM / Vision`
 
 ## 环境变量
-复制 `.env.example` 为 `.env` 后按需填写模型密钥。
 
-- `ASR_PROVIDER=volcengine`：默认通过豆包流式 ASR 识别前端上报的 16k PCM 分片
-- `VISION_PROVIDER=volcengine`：默认通过火山方舟视觉模型返回关键帧摘要
-- `LLM_PROVIDER=volcengine`：默认通过火山方舟文本模型生成流式回复
-- `TTS_PROVIDER=volcengine`：默认通过豆包语音合成接口返回播放音频
-- `VOLCENGINE_SPEECH_API_KEY`：豆包语音统一 API Key，用于火山 ASR / TTS 鉴权
-- `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`：火山 TTS 资源与音色配置
-- `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`：火山流式 ASR 资源与语言配置
-- `VOLCENGINE_SSL_CERT_FILE`：可选，自定义语音 WebSocket 使用的 CA 证书文件路径；默认使用项目内置 `certifi` 证书链
-- `ARK_API_KEY`：火山方舟文本与视觉模型鉴权配置
-- `ARK_LLM_MODEL / ARK_VISION_MODEL`：火山方舟文本与视觉模型 ID
-- 若本地暂时没有火山密钥，后端会自动进入降级处理并返回保守回复或兜底音频
+复制 `.env.example` 为 `.env` 后按需填写：
 
-## 成本面板（需要超级用户）
+- `ASR_PROVIDER=volcengine`
+- `VISION_PROVIDER=volcengine`
+- `LLM_PROVIDER=volcengine`
+- `TTS_PROVIDER=volcengine`
+- `VOLCENGINE_SPEECH_API_KEY`
+- `VOLCENGINE_TTS_RESOURCE_ID / VOLCENGINE_TTS_SPEAKER`
+- `VOLCENGINE_ASR_RESOURCE_ID / VOLCENGINE_ASR_LANGUAGE`
+- `VOLCENGINE_SSL_CERT_FILE`
+- `ARK_API_KEY`
+- `ARK_LLM_MODEL / ARK_VISION_MODEL`
+
+若本地未配置火山密钥，后端会进入降级处理，返回保守文本回复、基础画面说明或兜底 transcript。
+
+## 成本面板
+
 - 前端入口：`/costs`
-- 权限规则：`users.is_super = 1` 才能进入；否则会弹出提示并自动回到首页
+- 权限规则：`users.is_super = 1` 才能访问
 - 后端接口：`GET /api/admin/costs/sessions`
-- 计费口径：按火山官方文档的后付费单价做预估，可通过环境变量 `COST_ASR_PRICE_YUAN_PER_HOUR`、`COST_TTS_PRICE_YUAN_PER_10K_CHARS` 调整
+- 计费口径：按火山官方文档后付费单价做预估，可通过环境变量调整单价
 
-## TTS 接口
-- `POST /api/tts/synthesize`
-- 请求体：`{"text":"你好，欢迎使用 More See"}`
-- 返回：`audioBase64`、`mimeType`、`provider`、`textLength`
-- 当 `TTS_PROVIDER=volcengine` 时，后端会使用 `VOLCENGINE_SPEECH_API_KEY` 调用豆包语音 `2532486` WebSocket 双向流式语音合成接口；未配置密钥或请求失败时会自动回退到本地兜底音频
-
-## 火山模型接入
-- 当 `ASR_PROVIDER=volcengine` 时，前端会直接上报 `16k PCM` 音频分片，后端通过豆包流式语音识别接口完成转写
-- 当 `TTS_PROVIDER=volcengine` 时，后端会通过 WebSocket 事件流调用豆包语音双向流式合成，并统一使用 `VOLCENGINE_SPEECH_API_KEY`
-- 当 `LLM_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟 OpenAI 兼容接口并调用 `ARK_LLM_MODEL`
-- 当 `VISION_PROVIDER=volcengine` 时，后端会通过 `LangChain ChatOpenAI` 对接方舟多模态对话接口并调用 `ARK_VISION_MODEL`
-- 多轮上下文组装交由 `LangGraph` 处理，避免会话编排逻辑继续散落在服务层与适配层
-- 当火山模型暂不可用时，系统会自动降级为保守文本回复、基础画面说明、兜底 transcript 或本地提示音
-
-## 下一步
-- 接入浏览器 TTS 与分句朗读
-- 接入屏幕共享与双视觉切换
-- 接入关键帧筛选优化与真实视觉模型
