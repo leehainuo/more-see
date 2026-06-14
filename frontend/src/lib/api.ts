@@ -243,3 +243,9 @@ export async function fetchSessions(
 export async function fetchSessionDetail(sessionId: string): Promise<SessionDetailResponse> {
   return fetchJson<SessionDetailResponse>(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
+
+export async function deleteSession(sessionId: string): Promise<{ ok: boolean; sessionId: string }> {
+  return fetchJson<{ ok: boolean; sessionId: string }>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
+}

@@ -1,12 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { SessionFilterBar } from "@/components/SessionFilterBar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { SessionDetailResponse, SessionListItem } from "@/lib/api";
-import { fetchSessionDetail, fetchSessions } from "@/lib/api";
+import { deleteSession, fetchSessionDetail, fetchSessions } from "@/lib/api";
 import {
   createSessionSearchParams,
   parseSessionFilters,
@@ -34,36 +46,33 @@ export default function History() {
   const [total, setTotal] = useState(0);
   const [selectedDetail, setSelectedDetail] = useState<SessionDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [confirmDeleteSessionId, setConfirmDeleteSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadSessions = useCallback(async (targetPage: number, append: boolean) => {
     setLoading(true);
-    setError(null);
-    void (async () => {
-      try {
-        const result = await fetchSessions({ page: 1, pageSize, ...filterApiParams });
-        if (cancelled) {
-          return;
-        }
-        setPage(result.page);
-        setTotal(result.total);
-        setItems(result.items);
-      } catch (exc) {
-        if (cancelled) {
-          return;
-        }
-        setError(exc instanceof Error ? exc.message : "加载失败");
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!append) {
+      setError(null);
+    }
+    try {
+      const result = await fetchSessions({ page: targetPage, pageSize, ...filterApiParams });
+      setPage(result.page);
+      setTotal(result.total);
+      setItems((prev) =>
+        append ? [...prev, ...result.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId))] : result.items,
+      );
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "加载失败");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
   }, [filterApiParams]);
+
+  useEffect(() => {
+    void loadSessions(1, false);
+  }, [loadSessions]);
 
   const canLoadMore = items.length < total;
 
@@ -73,21 +82,34 @@ export default function History() {
     }
     setLoadingMore(true);
     setError(null);
-    try {
-      const nextPage = page + 1;
-      const result = await fetchSessions({ page: nextPage, pageSize, ...filterApiParams });
-      setPage(result.page);
-      setTotal(result.total);
-      setItems((prev) => [...prev, ...result.items.filter((item) => !prev.some((p) => p.sessionId === item.sessionId))]);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "加载失败");
-    } finally {
-      setLoadingMore(false);
-    }
+    void loadSessions(page + 1, true);
   }
 
   function handleApplyFilters(nextFilters: SessionFilters) {
     setSearchParams(createSessionSearchParams(nextFilters));
+  }
+
+  async function handleConfirmDelete() {
+    if (!confirmDeleteSessionId) {
+      return;
+    }
+
+    const sessionId = confirmDeleteSessionId;
+    setDeletingSessionId(sessionId);
+    try {
+      await deleteSession(sessionId);
+      toast.success("历史会话已删除");
+      setConfirmDeleteSessionId(null);
+      setSelectedDetail((current) => (current?.sessionId === sessionId ? null : current));
+      if (selectedSessionId === sessionId) {
+        setSearchParams(createSessionSearchParams(activeFilters));
+      }
+      await loadSessions(1, false);
+    } catch (exc) {
+      toast.error(exc instanceof Error ? exc.message : "删除失败");
+    } finally {
+      setDeletingSessionId(null);
+    }
   }
 
   useEffect(() => {
@@ -162,21 +184,39 @@ export default function History() {
                   ) : items.length ? (
                     <>
                       {items.map((item) => (
-                        <button
+                        <div
                           key={item.sessionId}
-                          type="button"
-                          onClick={() => setSearchParams(createSessionSearchParams(activeFilters, item.sessionId))}
-                          className={`rounded-[20px] border px-4 py-4 text-left transition-colors ${
+                          className={`group relative rounded-[20px] border transition-colors ${
                             item.sessionId === selectedSessionId
                               ? "border-black/20 bg-black/[0.03]"
                               : "border-black/10 bg-white hover:bg-black/[0.02]"
                           }`}
                         >
-                          <p className="text-sm font-medium text-black">{item.sessionId.slice(0, 12)}</p>
-                          <p className="mt-2 text-xs text-zinc-500">
-                            {item.inputSource} · 更新 {new Date(item.updatedAt).toLocaleString()}
-                          </p>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setSearchParams(createSessionSearchParams(activeFilters, item.sessionId))}
+                            className="w-full rounded-[20px] px-4 py-4 pr-14 text-left"
+                          >
+                            <p className="text-sm font-medium text-black">{item.sessionId.slice(0, 12)}</p>
+                            <p className="mt-2 text-xs text-zinc-500">
+                              {item.inputSource} · 更新 {new Date(item.updatedAt).toLocaleString()}
+                            </p>
+                          </button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`删除会话 ${item.sessionId}`}
+                            disabled={deletingSessionId === item.sessionId}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setConfirmDeleteSessionId(item.sessionId);
+                            }}
+                            className="absolute top-3 right-3 opacity-0 transition-all group-hover:opacity-100 text-zinc-400 hover:text-red-500"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       ))}
                       <div className="pt-2">
                         <Button
@@ -259,6 +299,30 @@ export default function History() {
           </CardContent>
         </Card>
       </main>
+
+      <AlertDialog
+        open={confirmDeleteSessionId !== null}
+        onOpenChange={(open) => {
+          if (!open && deletingSessionId === null) {
+            setConfirmDeleteSessionId(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除历史会话？</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后，该会话的历史记录、视觉摘要和相关内容将无法恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingSessionId !== null}>取消</AlertDialogCancel>
+            <AlertDialogAction disabled={deletingSessionId !== null} onClick={handleConfirmDelete}>
+              {deletingSessionId ? "删除中..." : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }

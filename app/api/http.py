@@ -331,3 +331,11 @@ async def get_session_detail(session_id: str, user_id: int = Depends(get_current
             ],
         }
     )
+
+
+@router.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str, user_id: int = Depends(get_current_user_id)) -> JSONResponse:
+    deleted = await persistence_repository.delete_session(user_id=user_id, session_id=session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return JSONResponse(content={"ok": True, "sessionId": session_id})

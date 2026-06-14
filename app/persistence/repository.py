@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import desc, func, select, text, update
+from sqlalchemy import delete, desc, func, select, text, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -472,6 +472,23 @@ class PersistenceRepository:
                 .options(selectinload(SessionRow.turns), selectinload(SessionRow.frames))
                 .where(SessionRow.session_id == session_id)
             )
+
+    async def delete_session(self, *, user_id: int, session_id: str) -> bool:
+        async with session_scope() as session:
+            # 批量删除 memory/turn/frame/session，避免逐条查询删除带来的额外往返和 N+1 风险
+            deleted_session_count = await session.scalar(
+                select(func.count(SessionRow.id)).where(SessionRow.user_id == user_id, SessionRow.session_id == session_id)
+            )
+            if not deleted_session_count:
+                await session.commit()
+                return False
+
+            await session.execute(delete(MemoryChunkRow).where(MemoryChunkRow.user_id == user_id, MemoryChunkRow.session_id == session_id))
+            await session.execute(delete(TurnRow).where(TurnRow.session_id == session_id))
+            await session.execute(delete(FrameRow).where(FrameRow.session_id == session_id))
+            await session.execute(delete(SessionRow).where(SessionRow.user_id == user_id, SessionRow.session_id == session_id))
+            await session.commit()
+            return True
 
     @staticmethod
     def _parse_dt(value: str) -> datetime:
